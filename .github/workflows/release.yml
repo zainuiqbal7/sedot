@@ -31,7 +31,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci # juga mengunduh aria2c.exe resmi + cek SHA-256
-      - name: Buat tag versi kalau belum ada (untuk Run workflow manual)
+      - name: Siapkan tag & rilis draft
+        # Rilis dibuat SEKALI di sini (sebagai draft). Tanpa langkah ini electron-builder
+        # mengunggah beberapa file bersamaan dan masing-masing bisa membuat rilis sendiri (dobel).
         shell: pwsh
         run: |
           $v = (Get-Content package.json | ConvertFrom-Json).version
@@ -40,7 +42,16 @@ jobs:
             git tag "v$v"
             git push origin "v$v"
           }
-      - name: Bangun installer & terbitkan ke Releases
+          gh release view "v$v" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            $notes = "release-notes/v$v.md"
+            if (Test-Path $notes) { gh release create "v$v" --draft --title "Sedot $v" --notes-file $notes }
+            else { gh release create "v$v" --draft --title "Sedot $v" --generate-notes }
+          }
+          exit 0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bangun installer & unggah ke rilis draft
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,5 +61,12 @@ jobs:
           $v = (Get-Content package.json | ConvertFrom-Json).version
           Compress-Archive -Path extension\* -DestinationPath sedot-extension.zip
           gh release upload "v$v" sedot-extension.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Terbitkan rilis (aplikasi yang terpasang mulai melihat update)
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          gh release edit "v$v" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
