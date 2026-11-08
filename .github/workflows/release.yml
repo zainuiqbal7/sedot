@@ -20,6 +20,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y aria2
       - run: npm ci
       - run: npm test
+      - name: Uji menyeluruh (aplikasi sungguhan, tanpa layar)
+        run: xvfb-run -a npm run test:e2e
 
   build-windows:
     needs: test

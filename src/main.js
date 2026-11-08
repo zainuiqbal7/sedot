@@ -1,17 +1,18 @@
 'use strict';
 // Proses utama Electron: menyalakan aria2, menyimpan riwayat, tray, dan menjembatani UI.
 
-const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, Notification, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, Notification, nativeImage, clipboard, powerSaveBlocker } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 
 const { Aria2 } = require('./aria2');
 const { startBridge } = require('./bridge');
 const { JsonFile } = require('./store');
 const { categoryOf, nameFromUrl, CATEGORIES } = require('./categories');
 const { probe } = require('./probe');
+const { friendlyError, findResumable, findDuplicate, looksDownloadable } = require('./helpers');
 
 const IS_WIN = process.platform === 'win32';
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png');
@@ -21,11 +22,14 @@ let tray = null;
 let aria = null;
 let settings = null;
 let history = null;
-let meta = null; // gid -> { description, keepPlace } untuk unduhan yang belum selesai
+let meta = null; // gid -> { description, keepPlace, addedAt } untuk unduhan yang belum selesai
 let quitting = false;
 let pollTimer = null;
-let lastState = { items: [], stat: {}, bridge: 'off', engineError: null };
+let lastState = { items: [], stat: {}, bridge: 'off', engineError: null, afterAll: 'none', countdown: null, offer: null, extensionSeen: 0 };
 const finalizing = new Set();
+
+// Wajib di Windows supaya notifikasi muncul atas nama "Sedot" dan bisa diklik.
+if (IS_WIN) app.setAppUserModelId('id.sedot.app');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -49,6 +53,9 @@ async function boot() {
     askBeforeDownload: true,
     categoryDirs: {},
     openAtLogin: false,
+    preventSleep: true,
+    watchClipboard: true,
+    onboarded: false,
   });
   history = new JsonFile(path.join(userData, 'history.json'), []);
   meta = new JsonFile(path.join(userData, 'meta.json'), {});
@@ -73,7 +80,7 @@ async function boot() {
   }
 
   try {
-    await startBridge({ version: app.getVersion(), onAdd: (job) => (settings.data.askBeforeDownload ? openJobDialog(job) : addJob(job, true)) });
+    await startBridge({ version: app.getVersion(), onAdd: onBrowserJob, onSeen: () => { lastState.extensionSeen = Date.now(); } });
     lastState.bridge = 'on';
   } catch (e) {
     lastState.bridge = e.code === 'EADDRINUSE' ? 'port-in-use' : 'error';
@@ -81,6 +88,7 @@ async function boot() {
 
   pollTimer = setInterval(poll, 1000);
   poll();
+  startClipboardWatch();
 }
 
 function findAria2() {
@@ -204,10 +212,8 @@ async function addJob(job, fromBrowser = false) {
     userAgent: job.userAgent,
     paused: job.paused,
   });
-  if (job.description || job.keepPlace) {
-    meta.data[gid] = { description: job.description || '', keepPlace: !!job.keepPlace };
-    meta.save();
-  }
+  meta.data[gid] = { description: job.description || '', keepPlace: !!job.keepPlace, addedAt: job.addedAt || Date.now() };
+  meta.save();
   if (fromBrowser && settings.data.notify && Notification.isSupported()) {
     new Notification({ title: 'Sedot mengambil alih unduhan', body: job.filename || nameFromUrl(job.url) || job.url }).show();
   }
@@ -217,6 +223,11 @@ async function addJob(job, fromBrowser = false) {
 
 function hostOf(url) {
   try { return new URL(url).hostname; } catch { return ''; }
+}
+
+function errorFields(s) {
+  const f = friendlyError(s.errorCode, s.errorMessage);
+  return { error: f.text, errorHint: f.hint, expired: !!f.expired, errorRaw: s.errorMessage || '' };
 }
 
 function toItem(s) {
@@ -234,8 +245,9 @@ function toItem(s) {
     speed: Number(s.downloadSpeed) || 0,
     connections: Number(s.connections) || 0,
     category: categoryOf(name),
-    error: s.errorMessage || '',
+    ...(s.status === 'error' ? errorFields(s) : {}),
     description: meta.data[s.gid]?.description || '',
+    addedAt: meta.data[s.gid]?.addedAt || 0,
   };
 }
 
@@ -254,6 +266,7 @@ async function poll() {
     lastState.items = [...live.filter((i) => i.status !== 'removed'), ...done];
     lastState.stat = { speed: Number(snap.stat.downloadSpeed) || 0, active: Number(snap.stat.numActive) || 0 };
     lastState.engineError = null;
+    afterPoll();
   } catch (e) {
     lastState.engineError = `Mesin unduhan tidak merespons: ${e.message || e}`;
   } finally {
@@ -285,6 +298,7 @@ async function finalize(it) {
       total: it.total,
       category: it.category,
       description: m.description || undefined,
+      addedAt: m.addedAt || undefined,
       doneAt: Date.now(),
     });
     delete meta.data[it.gid];
@@ -383,9 +397,7 @@ ipcMain.handle('resume', async (_e, gids) => {
     if (it.status === 'paused') await aria?.call('unpause', g).catch(() => {});
     else if (it.status === 'error' && it.url) {
       // Coba lagi: daftarkan ulang ke folder dan nama yang sama, aria2 akan melanjutkan bagian yang sudah ada.
-      const dir = it.path ? path.dirname(it.path) : undefined;
-      await addJob({ url: it.url, dir, filename: it.path ? path.basename(it.path) : undefined }).catch(() => {});
-      await aria?.call('removeDownloadResult', g).catch(() => {});
+      await replaceDownload(g, { url: it.url }).catch(() => {});
     }
   }
   poll();
@@ -448,9 +460,10 @@ ipcMain.handle('setSettings', async (_e, s) => {
     d.openAtLogin = s.openAtLogin;
     if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: d.openAtLogin, args: ['--hidden'] });
   }
-  for (const k of ['categorize', 'minimizeToTray', 'notify', 'askBeforeDownload']) if (typeof s[k] === 'boolean') d[k] = s[k];
+  for (const k of ['categorize', 'minimizeToTray', 'notify', 'askBeforeDownload', 'preventSleep', 'watchClipboard', 'onboarded']) if (typeof s[k] === 'boolean') d[k] = s[k];
   settings.save();
   await aria?.applyOptions(d).catch(() => {});
+  if (!d.preventSleep) updatePowerBlock();
   return d;
 });
 
@@ -477,6 +490,7 @@ function openJobDialog(job) {
   const category = categoryOf(name0);
   const entry = { job, info: { url: job.url, filename: name0, category, dir: dirFor(category), size: 0, probing: true }, win: null };
   jobs.set(id, entry);
+  matchExisting(entry.info);
 
   const w = new BrowserWindow({
     width: 640,
@@ -514,6 +528,7 @@ function openJobDialog(job) {
     .catch((e) => { entry.info.probeError = String(e.message || e); })
     .finally(() => {
       entry.info.probing = false;
+      matchExisting(entry.info);
       if (!w.isDestroyed()) w.webContents.send('job:update', entry.info);
     });
 
@@ -543,10 +558,31 @@ ipcMain.handle('job:chooseDir', async (e, { id, current }) => {
   return r.canceled ? null : r.filePaths[0];
 });
 
+ipcMain.handle('job:reveal', (e, id) => {
+  const p = jobFor(e, id)?.info.duplicate?.path;
+  if (p && fs.existsSync(p)) shell.showItemInFolder(p);
+});
+
+ipcMain.handle('job:resize', (e, { id, h }) => {
+  const entry = jobFor(e, id);
+  if (entry && Number.isFinite(h)) entry.win.setContentSize(640, Math.max(300, Math.min(720, Math.ceil(h))));
+});
+
 ipcMain.handle('job:decide', async (e, d) => {
   const entry = jobFor(e, d?.id);
   if (!entry) return { error: 'Dialog sudah tidak berlaku.' };
   if (d.action === 'cancel') { entry.win.close(); return { ok: true }; }
+
+  // Lanjutkan unduhan lama dengan link baru (mis. link Gofile kedaluwarsa)
+  if (d.resumeGid && entry.info.resume?.gid === d.resumeGid) {
+    try {
+      await replaceDownload(d.resumeGid, entry.job, { paused: d.action === 'later' });
+    } catch (err) {
+      return { error: String(err.message || err) };
+    }
+    entry.win.close();
+    return { ok: true };
+  }
 
   const dir = typeof d.dir === 'string' && d.dir.trim() ? path.resolve(d.dir.trim()) : entry.info.dir;
   const filename = typeof d.filename === 'string' ? d.filename.trim() : '';
@@ -620,3 +656,289 @@ function setupUpdater() {
   setTimeout(check, 5000);
   setInterval(check, 6 * 60 * 60 * 1000); // cek lagi tiap 6 jam
 }
+
+// ---------- Unduhan dari browser ----------
+
+const recentUrls = new Map();
+
+function onBrowserJob(job) {
+  // Dua ekstensi Sedot (mis. versi zip lama + versi bawaan aplikasi) bisa mengirim link yang sama: cukup sekali.
+  const now = Date.now();
+  for (const [u, t] of recentUrls) if (now - t > 5000) recentUrls.delete(u);
+  if (recentUrls.has(job.url)) return Promise.resolve('duplikat-diabaikan');
+  recentUrls.set(job.url, now);
+
+  if (settings.data.askBeforeDownload) return openJobDialog(job);
+  // Tanpa dialog: kalau ini file yang dulu gagal/terjeda, otomatis lanjutkan dengan link baru.
+  const name = job.filename || nameFromUrl(job.url);
+  const old = findResumable(lastState.items, name, 0);
+  if (old) return replaceDownload(old.gid, job);
+  return addJob(job, true);
+}
+
+/** Isi info dialog dengan unduhan lama yang cocok (untuk dilanjutkan) atau duplikat (untuk diperingatkan). */
+function matchExisting(info) {
+  const old = findResumable(lastState.items, info.filename, info.size);
+  info.resume = old ? { gid: old.gid, name: old.name, pct: old.total ? Math.floor((old.done / old.total) * 100) : 0, status: old.status, error: old.error || '' } : null;
+  const dup = old ? null : findDuplicate(lastState.items, info.filename, info.size);
+  info.duplicate = dup ? { gid: dup.gid, status: dup.status, path: dup.path } : null;
+}
+
+/**
+ * Ganti link sebuah unduhan yang belum selesai, tanpa kehilangan bagian yang sudah terunduh.
+ * aria2 menyimpan progres di file "<nama>.aria2"; dengan folder + nama yang sama ia melanjutkan dari situ.
+ */
+async function replaceDownload(gid, job, { paused = false } = {}) {
+  if (!aria) throw new Error(lastState.engineError || 'mesin unduhan belum siap');
+  const it = findItem(gid);
+  if (!it) throw new Error('Unduhan lama tidak ditemukan.');
+  if (it.status === 'complete') throw new Error('Unduhan ini sudah selesai.');
+  const m = meta.data[gid] || {};
+  if (['active', 'waiting', 'paused'].includes(it.status)) {
+    await aria.call('forceRemove', gid).catch(() => {});
+    await waitStopped(gid);
+  }
+  await aria.call('removeDownloadResult', gid).catch(() => {});
+  delete meta.data[gid];
+  const newGid = await addJob({
+    url: job.url,
+    cookie: job.cookie,
+    referer: job.referer,
+    userAgent: job.userAgent,
+    dir: it.path ? path.dirname(it.path) : undefined,
+    filename: it.path ? path.basename(it.path) : it.name,
+    paused,
+    description: m.description,
+    keepPlace: m.keepPlace,
+    addedAt: m.addedAt,
+  });
+  if (settings.data.notify && Notification.isSupported()) {
+    new Notification({ title: 'Melanjutkan unduhan', body: `${it.name}: lanjut dari ${it.total ? Math.floor((it.done / it.total) * 100) : 0}% dengan link baru` }).show();
+  }
+  return newGid;
+}
+
+// ---------- Setelah setiap polling: taskbar, tray, sleep, aksi "setelah semua selesai" ----------
+
+let sleepBlockId = null;
+let wasBusy = false;
+
+function afterPoll() {
+  const running = lastState.items.filter((i) => i.status === 'active' || i.status === 'waiting');
+  const busy = running.length > 0;
+
+  // Progres di ikon taskbar Windows
+  if (win && !win.isDestroyed()) {
+    const sized = running.filter((i) => i.total > 0);
+    const total = sized.reduce((a, i) => a + i.total, 0);
+    const done = sized.reduce((a, i) => a + i.done, 0);
+    win.setProgressBar(busy ? (total ? done / total : 2) : -1); // 2 = mode "tidak tentu"
+    win.setTitle(busy ? `Sedot · ↓ ${fmtSpeed(lastState.stat.speed)}` : 'Sedot');
+  }
+  tray?.setToolTip(busy ? `Sedot\n↓ ${fmtSpeed(lastState.stat.speed)} · ${running.length} berjalan` : 'Sedot');
+
+  updatePowerBlock(busy);
+
+  // Semua unduhan (yang tidak dijeda) baru saja selesai -> jalankan aksi pilihan pengguna
+  if (wasBusy && !busy && lastState.afterAll !== 'none' && !lastState.countdown) startCountdown(lastState.afterAll);
+  wasBusy = busy;
+}
+
+function updatePowerBlock(busy = wasBusy) {
+  const want = busy && settings.data.preventSleep;
+  if (want && sleepBlockId === null) sleepBlockId = powerSaveBlocker.start('prevent-app-suspension');
+  if (!want && sleepBlockId !== null) { powerSaveBlocker.stop(sleepBlockId); sleepBlockId = null; }
+}
+
+function fmtSpeed(b) {
+  if (!b) return '0 B/s';
+  const u = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(3, Math.floor(Math.log(b) / Math.log(1024)));
+  return `${(b / 1024 ** i).toFixed(i ? 1 : 0)} ${u[i]}/s`;
+}
+
+const AFTER_ALL = { none: 'Tidak ada', sleep: 'Sleep', shutdown: 'Matikan komputer' };
+const COUNTDOWN_SECONDS = 60;
+let countdownTimer = null;
+
+function startCountdown(action) {
+  lastState.countdown = { action, label: AFTER_ALL[action], left: COUNTDOWN_SECONDS };
+  showWindow();
+  if (settings.data.notify && Notification.isSupported()) {
+    new Notification({ title: 'Semua unduhan selesai', body: `${AFTER_ALL[action]} dalam ${COUNTDOWN_SECONDS} detik. Buka Sedot untuk membatalkan.` }).show();
+  }
+  countdownTimer = setInterval(() => {
+    if (!lastState.countdown) return;
+    lastState.countdown.left -= 1;
+    if (lastState.countdown.left <= 0) {
+      clearInterval(countdownTimer);
+      lastState.countdown = null;
+      lastState.afterAll = 'none'; // sekali jalan, supaya besok tidak mati sendiri
+      runPowerAction(action);
+    }
+    send();
+  }, 1000);
+  send();
+}
+
+function cancelCountdown() {
+  clearInterval(countdownTimer);
+  lastState.countdown = null;
+  lastState.afterAll = 'none';
+  send();
+}
+
+function runPowerAction(action) {
+  if (!IS_WIN) return; // hanya didukung di Windows
+  if (action === 'shutdown') execFile('shutdown', ['/s', '/t', '0']);
+  if (action === 'sleep') {
+    execFile('powershell', ['-NoProfile', '-Command',
+      "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Application]::SetSuspendState('Suspend', $false, $false)"]);
+  }
+}
+
+ipcMain.handle('setAfterAll', (_e, action) => {
+  if (!AFTER_ALL[action]) return;
+  lastState.afterAll = action;
+  if (action === 'none' && lastState.countdown) cancelCountdown();
+  send();
+});
+ipcMain.handle('cancelCountdown', () => cancelCountdown());
+
+// ---------- Pantau clipboard: tawarkan link unduhan yang disalin ----------
+
+let lastClip = null;
+
+/** Di Electron versi baru clipboard.readText() mengembalikan Promise; di versi lama langsung teks. */
+async function readClipboard() {
+  try {
+    const t = await clipboard.readText();
+    return typeof t === 'string' ? t : '';
+  } catch {
+    return null;
+  }
+}
+
+async function startClipboardWatch() {
+  lastClip = await readClipboard(); // jangan tawarkan isi clipboard lama
+  let busy = false;
+  setInterval(async () => {
+    if (!settings.data.watchClipboard || busy) return;
+    busy = true;
+    try {
+      const t = await readClipboard();
+      if (t === null || t === lastClip) return;
+      lastClip = t;
+      if (!looksDownloadable(t, categoryOf, nameFromUrl)) return;
+      const url = t.trim();
+      if (lastState.items.some((i) => i.url === url)) return;
+      lastState.offer = { url, name: nameFromUrl(url) };
+      send();
+      if (settings.data.notify && Notification.isSupported()) {
+        const n = new Notification({ title: 'Link unduhan disalin', body: `${lastState.offer.name}\nKlik untuk mengunduh dengan Sedot.` });
+        n.on('click', () => acceptOffer());
+        n.show();
+      }
+    } finally {
+      busy = false;
+    }
+  }, 1000);
+}
+
+function acceptOffer() {
+  const o = lastState.offer;
+  lastState.offer = null;
+  send();
+  if (o) openJobDialog({ url: o.url });
+}
+
+ipcMain.handle('acceptOffer', () => acceptOffer());
+ipcMain.handle('dismissOffer', () => { lastState.offer = null; send(); });
+
+/** Satu link dari UI (seret-lepas) lewat dialog info, supaya ukuran & nama terlihat dulu. */
+ipcMain.handle('addViaDialog', (_e, url) => {
+  if (typeof url === 'string' && /^(https?|ftp):\/\//i.test(url.trim())) openJobDialog({ url: url.trim() });
+});
+
+// ---------- Panel detail ----------
+
+ipcMain.handle('detail', async (_e, gid) => {
+  const it = findItem(gid);
+  if (!it) return null;
+  const base = {
+    gid: it.gid, name: it.name, path: it.path, url: it.url, status: it.status, total: it.total, done: it.done,
+    addedAt: it.addedAt || 0, doneAt: it.doneAt || 0, description: it.description || '',
+    error: it.error || '', errorHint: it.errorHint || '', errorRaw: it.errorRaw || '', expired: !!it.expired,
+    exists: it.path ? fs.existsSync(it.path) : false,
+  };
+  if (it.status === 'complete' || !aria) return base;
+  try {
+    const st = await aria.call('tellStatus', gid, ['bitfield', 'numPieces', 'pieceLength', 'connections']);
+    const servers = it.status === 'active' ? await aria.call('getServers', gid).catch(() => []) : [];
+    const opt = await aria.call('getOption', gid).catch(() => ({}));
+    return {
+      ...base,
+      bitfield: st.bitfield || '',
+      numPieces: Number(st.numPieces) || 0,
+      connections: (servers[0]?.servers || []).map((sv) => ({ host: hostOf(sv.currentUri || sv.uri), speed: Number(sv.downloadSpeed) || 0 })),
+      limitKB: Math.round(parseSize(opt['max-download-limit']) / 1024),
+    };
+  } catch {
+    return base;
+  }
+});
+
+function parseSize(v) {
+  const m = /^(\d+(?:\.\d+)?)([KM]?)$/i.exec(String(v || '0'));
+  if (!m) return 0;
+  return Number(m[1]) * (m[2].toUpperCase() === 'M' ? 1048576 : m[2].toUpperCase() === 'K' ? 1024 : 1);
+}
+
+ipcMain.handle('setLimit', async (_e, { gid, kb }) => {
+  if (!ids([gid]).length || !aria) return;
+  kb = Math.max(0, Math.round(Number(kb) || 0));
+  await aria.call('changeOption', gid, { 'max-download-limit': kb ? `${kb}K` : '0' }).catch(() => {});
+});
+
+ipcMain.handle('replaceUrl', async (_e, { gid, url }) => {
+  if (!ids([gid]).length) return { error: 'Unduhan tidak valid.' };
+  if (typeof url !== 'string' || !/^(https?|ftp):\/\//i.test(url.trim())) return { error: 'Link harus diawali http:// atau https://' };
+  try {
+    await replaceDownload(gid, { url: url.trim() });
+    return { ok: true };
+  } catch (e) {
+    return { error: String(e.message || e) };
+  }
+});
+
+ipcMain.handle('copyText', async (_e, t) => {
+  if (typeof t !== 'string') return;
+  lastClip = t; // salinan dari Sedot sendiri tidak perlu ditawarkan balik
+  await clipboard.writeText(t);
+});
+
+// ---------- Menu klik kanan (menu asli Windows) ----------
+
+ipcMain.handle('contextMenu', (e, items) => new Promise((resolve) => {
+  if (!Array.isArray(items) || !win) return resolve(null);
+  let done = false;
+  const pick = (id) => { if (!done) { done = true; resolve(id); } };
+  const menu = Menu.buildFromTemplate(items.map((x) => (x.sep
+    ? { type: 'separator' }
+    : { label: String(x.label), enabled: x.enabled !== false, accelerator: x.accel, registerAccelerator: false, click: () => pick(x.id) })));
+  menu.popup({ window: BrowserWindow.fromWebContents(e.sender) || win, callback: () => setTimeout(() => pick(null), 100) });
+}));
+
+// ---------- Ekstensi browser (ikut terpasang bersama aplikasi) ----------
+
+function extensionDir() {
+  const packed = path.join(process.resourcesPath || '', 'extension');
+  return app.isPackaged && fs.existsSync(packed) ? packed : path.join(__dirname, '..', 'extension');
+}
+
+ipcMain.handle('extensionInfo', () => ({ dir: extensionDir(), seen: lastState.extensionSeen }));
+ipcMain.handle('openExtensionDir', () => shell.openPath(extensionDir()));
+ipcMain.handle('openUrl', (_e, url) => {
+  // hanya link yang memang dipakai UI (halaman rilis & panduan), bukan sembarang URL
+  if (typeof url === 'string' && url.startsWith('https://github.com/zainuiqbal7/sedot')) shell.openExternal(url);
+});

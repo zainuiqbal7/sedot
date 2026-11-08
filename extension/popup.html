@@ -11,12 +11,14 @@
     .status.off { background: #fff4e5; color: #8a4b00; }
     label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
     p { color: #69717d; font-size: 12px; margin: 10px 0 0; }
+    label.gap { margin-top: 6px; }
   </style>
 </head>
 <body>
   <h1><img src="icons/32.png" alt=""> Sedot</h1>
   <div id="status" class="status">Memeriksa aplikasi…</div>
   <label><input type="checkbox" id="capture"> Tangkap unduhan otomatis</label>
+  <label class="gap"><input type="checkbox" id="skipSmall"> Biarkan file kecil (&lt; 256 KB) diunduh browser</label>
   <p>Klik kanan link → <b>Unduh dengan Sedot</b> untuk mengirim satu link secara manual.</p>
   <script src="popup.js"></script>
 </body>

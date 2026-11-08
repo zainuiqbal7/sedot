@@ -19,10 +19,14 @@ Kalau sebelumnya kamu menjalankan Sedot dengan `npm start`, pengaturan dan riway
 
 ### Memasang ekstensi browser
 
-1. Unduh `sedot-extension.zip` dari halaman Releases yang sama, lalu ekstrak ke folder yang **tidak akan kamu hapus**, misalnya `Documents\sedot-extension`.
-2. Buka `chrome://extensions` (untuk Edge: `edge://extensions`).
-3. Nyalakan **Developer mode**, klik **Load unpacked**, lalu pilih folder hasil ekstrak tadi.
-4. Sematkan ikon Sedot di toolbar. Klik ikonnya untuk memastikan statusnya **"Terhubung ke aplikasi Sedot"**.
+Saat Sedot pertama kali dibuka, muncul panduan langkah demi langkah. Panduan yang sama bisa dibuka lagi dari ⚙ Pengaturan → **Panduan ekstensi browser**.
+
+1. Klik **Buka folder ekstensi** di panduan itu. Foldernya ada di dalam folder instalasi Sedot, jadi ikut ter-update.
+2. Buka `chrome://extensions` (untuk Edge: `edge://extensions`), lalu nyalakan **Developer mode**.
+3. Klik **Load unpacked**, lalu pilih folder dari langkah 1.
+4. Status bar Sedot berubah menjadi **"Ekstensi browser: terhubung"**.
+
+> Kalau sebelumnya kamu memasang ekstensi dari `sedot-extension.zip`, hapus yang lama (**Remove**) supaya tidak ada dua ekstensi Sedot. Sedot memang mengabaikan link dobel, tapi lebih rapi kalau hanya satu.
 
 ### Update otomatis
 
@@ -56,19 +60,25 @@ Untuk membuat installer secara lokal tanpa menerbitkan: `npm run dist`. Hasilnya
 | Fitur | Keterangan |
 |---|---|
 | Multi-koneksi | Sampai 16 koneksi per file (bisa diatur) |
-| Resume | Jeda dan lanjutkan kapan saja. Antrean juga bertahan setelah aplikasi atau komputer di-restart |
-| Dialog "Info unduhan" | Saat browser mengirim link, muncul jendela berisi nama file, ukuran (dideteksi sebelum unduh), kategori, folder, dan catatan. Folder bisa diingat per kategori. Tombolnya **Mulai unduh** (Enter), **Unduh nanti**, dan **Batal** (Esc). Bisa dimatikan di Pengaturan |
-| Integrasi browser | Unduhan di Chrome/Edge otomatis dialihkan ke Sedot, termasuk cookie login dan referer |
-| Klik kanan | Menu "Unduh dengan Sedot" untuk link, gambar, video, dan audio |
-| Kategori | File yang selesai dipindah ke subfolder Video, Musik, Dokumen, Gambar, Program, Arsip, atau Lainnya |
-| Antrean | Atur jumlah unduhan bersamaan dan batas kecepatan |
-| Tray | Tetap berjalan di tray saat jendela ditutup, supaya ekstensi tetap bisa mengirim link |
-| Coba lagi | Unduhan yang gagal bisa dilanjutkan dengan tombol **Lanjutkan** |
-| Mode gelap | Mengikuti tema Windows |
+| **Lanjutkan dengan link baru** | Link kedaluwarsa (misalnya Gofile)? Klik download lagi di browser, dan Sedot menawarkan **"Lanjutkan unduhan lama dari 40%"**. Bagian yang sudah ada tetap dipakai. Bisa juga lewat klik kanan → *Ganti link…* |
+| Integrasi browser | Unduhan di Chrome/Edge otomatis dialihkan ke Sedot, termasuk cookie login dan referer. File kecil (< 256 KB) dibiarkan diunduh browser |
+| Dialog "Info unduhan" | Nama file, ukuran (dideteksi sebelum unduh), kategori, folder (bisa diingat per kategori), dan catatan. Ada peringatan kalau file yang sama sudah pernah diunduh |
+| Panel detail | Klik satu unduhan untuk melihat peta segmen, daftar koneksi beserta kecepatannya, lokasi, link, waktu, dan **batas kecepatan khusus file itu** |
+| Klik kanan | Buka file/folder, lanjutkan/jeda, ganti link, salin link, hapus |
+| Pantau clipboard | Salin link file (video, musik, dokumen, program, arsip), lalu Sedot menawarkan untuk mengunduhnya |
+| Seret & lepas | Seret link dari browser ke jendela Sedot |
+| Setelah semua selesai | Sleep atau matikan komputer, dengan hitung mundur 60 detik yang bisa dibatalkan |
+| Tidak sleep saat mengunduh | Laptop tidak tertidur selama ada unduhan berjalan (bisa dimatikan) |
+| Taskbar | Progres total tampil di ikon taskbar Windows, kecepatan di judul jendela dan tooltip tray |
+| Pesan error jelas | "Link kedaluwarsa", "Disk penuh", "Masalah jaringan", masing-masing dengan saran tindakan |
+| Resume | Jeda dan lanjutkan kapan saja. Antrean bertahan setelah restart |
+| Kategori | File selesai dipindah ke subfolder Video, Musik, Dokumen, Gambar, Program, Arsip, atau Lainnya |
+| Urutkan | Klik judul kolom. Urutan bawaan: yang berjalan di atas, lalu yang terbaru |
 | Update otomatis | Versi baru diunduh di latar belakang dari GitHub Releases |
-| Jalan saat Windows menyala | Opsional, langsung ke tray supaya ekstensi selalu tersambung |
+| Ekstensi ikut ter-update | Ekstensi dipasang dari folder aplikasi, jadi ikut diperbarui bersama Sedot |
+| Lainnya | Tray, jalan saat Windows menyala, mode gelap, batas kecepatan total, antrean |
 
-**Pintasan keyboard:** `Ctrl+N` tambah URL, `Spasi` jeda/lanjut, `Delete` hapus, `Enter` buka file, `Ctrl+A` pilih semua.
+**Pintasan keyboard:** `Ctrl+N` tambah URL · `Ctrl+F` cari · `↑/↓` pindah pilihan · `Spasi` jeda/lanjut · `Enter` buka file · `Delete` hapus · `Esc` tutup detail · `Ctrl+A` pilih semua.
 
 ## Keamanan
 
@@ -82,14 +92,14 @@ Untuk membuat installer secara lokal tanpa menerbitkan: `npm run dist`. Hasilnya
 ## Keterbatasan yang diketahui
 
 - **Unduhan yang memakai form POST** (jarang, misalnya beberapa portal pemerintah atau bank) tidak bisa diambil alih karena aria2 hanya melakukan GET. Matikan "Tangkap unduhan otomatis" di popup ekstensi untuk sementara.
-- **File yang sangat kecil** kadang sudah selesai diunduh browser sebelum sempat dibatalkan, sehingga file-nya ada dua.
 - **Video grabber** (tombol "unduh video ini" di atas pemutar video) belum ada.
 - Baru diuji dengan Chrome/Chromium. Edge memakai mesin yang sama, jadi seharusnya berfungsi juga. Firefox belum didukung.
 
 ## Uji & struktur kode
 
 ```
-npm test          # uji mesin: multi-koneksi, resume, keamanan bridge (butuh aria2c di PATH)
+npm test          # uji cepat: fungsi murni + mesin (multi-koneksi, resume, keamanan bridge). Butuh aria2c di PATH
+npm run test:e2e  # uji menyeluruh: membuka aplikasi sungguhan dan mengklik seperti pengguna (Linux: xvfb-run -a …)
 npm run icons     # buat ulang ikon
 ```
 
@@ -99,6 +109,8 @@ Struktur:
 src/main.js        proses utama Electron: tray, riwayat, kategori, IPC
 src/aria2.js       menjalankan & mengendalikan aria2c lewat JSON-RPC
 src/bridge.js      server lokal untuk ekstensi browser
+src/helpers.js     fungsi murni yang dipakai proses utama & tampilan (pesan error, segmen, pencocokan, urutan)
+src/probe.js       mengintip nama & ukuran file sebelum unduh
 src/renderer/      tampilan (HTML/CSS/JS biasa, tanpa framework)
 extension/         ekstensi Chrome/Edge (Manifest V3)
 scripts/           pengambil aria2 & pembuat ikon

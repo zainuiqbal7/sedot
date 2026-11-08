@@ -43,7 +43,46 @@ function showInfo(info) {
     else parts.push(info.resumable ? 'bisa dijeda & dilanjutkan' : 'server tidak mendukung lanjut/potong, unduh dengan 1 koneksi');
   }
   $('sub').textContent = parts.filter(Boolean).join(' · ');
+
+  // File yang dulu gagal/terjeda: tawarkan lanjut dengan link baru
+  resume = info.resume || null;
+  $('resumeBox').hidden = !resume;
+  if (resume) {
+    const why = resume.status === 'error' ? (resume.error || 'gagal') : resume.status === 'paused' ? 'dijeda' : 'menunggu';
+    $('resumeTitle').textContent = `Lanjutkan unduhan lama dari ${resume.pct}%`;
+    $('resumeText').textContent = `"${resume.name}" pernah diunduh sebagian (${why.toLowerCase()}). Bagian yang sudah ada dipakai, sisanya diambil lewat link baru ini.`;
+  }
+  dup = info.duplicate || null;
+  $('dupBox').hidden = !dup || !!resume;
+  if (dup) {
+    $('dupText').textContent = dup.status === 'active' ? 'File ini sedang diunduh di Sedot.' : 'File dengan nama & ukuran sama sudah pernah diunduh. Kalau dilanjutkan, file baru diberi nama berbeda.';
+    $('dupReveal').hidden = dup.status !== 'complete';
+  }
+  applyResumeLock();
+  fit();
 }
+
+let resume = null;
+let dup = null;
+
+function applyResumeLock() {
+  const lock = !!resume && $('resumeChk').checked;
+  for (const id of ['category', 'filename', 'dir', 'pick', 'remember']) $(id).disabled = lock;
+  document.querySelector('.fields').classList.toggle('locked', lock);
+  $('start').textContent = lock ? 'Lanjutkan unduh' : 'Mulai unduh';
+}
+
+/** Sesuaikan tinggi jendela dengan isi (kotak tambahan bisa muncul setelah deteksi). */
+function fit() {
+  const f = $('form');
+  const cs = getComputedStyle(f);
+  const kids = [...f.children].filter((k) => !k.hidden && k.offsetParent !== null);
+  const h = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + kids.reduce((a, k) => a + k.offsetHeight, 0) + (kids.length - 1) * 12;
+  job.resize(h);
+}
+
+$('resumeChk').addEventListener('change', applyResumeLock);
+$('dupReveal').onclick = () => job.reveal();
 
 function refreshHeader() {
   const cat = $('category').value;
@@ -79,6 +118,7 @@ async function decide(action) {
     remember: $('remember').checked,
     description: $('desc').value,
     dontAsk: $('dontAsk').checked,
+    resumeGid: resume && $('resumeChk').checked ? resume.gid : undefined,
   });
   if (r?.error) {
     $('error').textContent = r.error;

@@ -11,6 +11,7 @@
     <aside class="sidebar">
       <div class="brand"><img src="../../assets/icon.png" alt=""> Sedot</div>
       <nav id="filters" aria-label="Filter unduhan"></nav>
+      <button id="btnExtGuide" class="ext-link" hidden><span class="ic" data-ic="puzzle"></span>Pasang ekstensi browser</button>
       <div id="version" class="version"></div>
     </aside>
 
@@ -25,40 +26,94 @@
         <button id="btnPauseAll" title="Jeda semua"><span class="ic" data-ic="pause"></span><span class="lbl opt">Jeda semua</span></button>
         <button id="btnResumeAll" title="Lanjutkan semua"><span class="ic" data-ic="play"></span><span class="lbl opt">Lanjutkan semua</span></button>
         <span class="grow"></span>
-        <input id="search" type="search" placeholder="Cari nama file" aria-label="Cari">
+        <input id="search" type="search" placeholder="Cari nama file (Ctrl+F)" aria-label="Cari">
         <button id="btnSettings" class="icon-only" title="Pengaturan" aria-label="Pengaturan"><span class="ic" data-ic="gear"></span></button>
       </header>
 
       <div id="banner" class="banner" hidden></div>
+      <div id="countdown" class="notice warn" hidden>
+        <span class="ic" data-ic="power"></span>
+        <span id="countdownText" class="grow"></span>
+        <button id="btnCancelCountdown" class="primary small">Batalkan</button>
+      </div>
+      <div id="offer" class="notice" hidden>
+        <span class="ic" data-ic="clip"></span>
+        <span class="grow">Link unduhan disalin: <b id="offerName"></b></span>
+        <button id="btnOfferNo" class="small">Abaikan</button>
+        <button id="btnOfferYes" class="primary small">Unduh</button>
+      </div>
 
-      <div class="table-wrap">
+      <div class="table-wrap" id="tableWrap">
         <table>
           <thead>
             <tr>
-              <th class="c-name">Nama</th>
-              <th class="c-size">Ukuran</th>
-              <th class="c-prog">Progres</th>
-              <th class="c-speed">Kecepatan</th>
+              <th class="c-name" data-sort="name">Nama</th>
+              <th class="c-size" data-sort="size">Ukuran</th>
+              <th class="c-prog" data-sort="progress">Progres</th>
+              <th class="c-speed" data-sort="speed">Kecepatan</th>
               <th class="c-eta">Sisa waktu</th>
-              <th class="c-status">Status</th>
+              <th class="c-status" data-sort="status">Status</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
         </table>
         <div id="empty" class="empty" hidden>
           <p class="empty-title">Belum ada unduhan</p>
-          <p>Tempel link dengan <b>Tambah URL</b>, atau pasang ekstensi browser supaya link otomatis masuk ke sini.</p>
+          <p id="emptyText">Klik download di browser, salin link file, atau seret link ke jendela ini.</p>
           <button id="btnAddEmpty" class="primary"><span class="ic" data-ic="plus"></span>Tambah URL</button>
         </div>
+        <div id="dropHint" class="drop-hint" hidden>Lepaskan untuk mengunduh</div>
       </div>
+
+      <section id="detail" class="detail" hidden aria-label="Detail unduhan">
+        <header class="detail-head">
+          <span id="dIcon" class="ic"></span>
+          <b id="dName" class="grow ellipsis"></b>
+          <button id="dOpen" class="small">Buka file</button>
+          <button id="dReveal" class="small">Buka folder</button>
+          <button id="dClose" class="icon-only small" title="Tutup detail (Esc)" aria-label="Tutup detail"><span class="ic" data-ic="x"></span></button>
+        </header>
+        <div id="dError" class="detail-error" hidden>
+          <b id="dErrorText"></b> <span id="dErrorHint"></span>
+        </div>
+        <div class="seg-wrap" id="dSegWrap">
+          <div id="dSeg" class="seg" title="Bagian file yang sudah terunduh"></div>
+          <div id="dSegText" class="seg-text"></div>
+        </div>
+        <div class="detail-grid">
+          <dl class="kv">
+            <dt>Lokasi</dt><dd id="dPath" class="ellipsis"></dd>
+            <dt>Link</dt><dd class="row-inline"><span id="dUrl" class="ellipsis grow"></span><button id="dCopy" class="small">Salin</button><button id="dReplace" class="small">Ganti link…</button></dd>
+            <dt>Ditambahkan</dt><dd id="dAdded"></dd>
+            <dt id="dDoneLbl">Selesai</dt><dd id="dDone"></dd>
+            <dt id="dNoteLbl">Catatan</dt><dd id="dNote"></dd>
+          </dl>
+          <div class="side" id="dSide">
+            <div class="side-title">Koneksi</div>
+            <ol id="dConns" class="conns"></ol>
+            <div class="limit">
+              <label for="dLimit">Batas kecepatan file ini</label>
+              <div class="row-inline"><input id="dLimit" type="number" min="0" step="100"> <span class="muted">KB/s</span><button id="dLimitApply" class="small">Terapkan</button></div>
+              <div class="muted small-text">0 = tanpa batas</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <footer class="statusbar">
         <span id="sbSpeed">0 B/s</span>
         <span id="sbActive"></span>
+        <label class="afterall" title="Dijalankan sekali saat semua unduhan yang berjalan sudah selesai">Setelah semua selesai:
+          <select id="afterAll">
+            <option value="none">Tidak ada</option>
+            <option value="sleep">Sleep</option>
+            <option value="shutdown">Matikan komputer</option>
+          </select>
+        </label>
         <span class="grow"></span>
         <span id="sbUpdate"></span>
         <button id="btnUpdate" class="primary small" hidden>Restart &amp; pasang update</button>
-        <span id="sbBridge"></span>
+        <button id="sbBridge" class="link small"></button>
       </footer>
     </main>
   </div>
@@ -93,6 +148,39 @@
     </form>
   </dialog>
 
+  <dialog id="dlgReplace">
+    <form method="dialog" id="formReplace">
+      <h2>Ganti link unduhan</h2>
+      <p class="muted">Bagian yang sudah terunduh tetap dipakai. Tempel link baru untuk <b id="replaceName"></b>.</p>
+      <p class="muted small-text">Untuk situs yang butuh login (mis. Gofile), lebih mudah klik download lagi di browser: Sedot akan otomatis menawarkan untuk melanjutkan.</p>
+      <label for="replaceUrl">Link baru</label>
+      <input id="replaceUrl" type="text" spellcheck="false" placeholder="https://…">
+      <p id="replaceError" class="error" hidden></p>
+      <div class="actions">
+        <button type="button" data-close>Batal</button>
+        <button type="submit" class="primary" id="replaceSubmit">Lanjutkan dengan link ini</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgExt" class="wide">
+    <form method="dialog" id="formExt">
+      <h2 id="extTitle">Pasang ekstensi browser</h2>
+      <p class="muted">Dengan ekstensi, klik download di Chrome atau Edge langsung masuk ke Sedot. Cukup sekali, dan ekstensinya ikut ter-update bersama aplikasi.</p>
+      <ol class="steps">
+        <li><button type="button" id="extOpenDir" class="small">Buka folder ekstensi</button> <span class="muted">(biarkan jendelanya terbuka)</span></li>
+        <li>Di browser, ketik <code>chrome://extensions</code> (Edge: <code>edge://extensions</code>) di kolom alamat <button type="button" id="extCopyUrl" class="small">Salin</button></li>
+        <li>Nyalakan <b>Developer mode</b> (Chrome: kanan atas · Edge: menu kiri)</li>
+        <li>Klik <b>Load unpacked</b>, lalu pilih folder dari langkah 1</li>
+      </ol>
+      <p class="muted small-text">Lokasi folder: <code id="extDir"></code></p>
+      <p id="extStatus" class="ext-status"></p>
+      <div class="actions">
+        <button type="submit" class="primary" id="extDone">Selesai</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="dlgSettings">
     <form method="dialog" id="formSettings">
       <h2>Pengaturan</h2>
@@ -111,22 +199,28 @@
           <input id="setConc" type="number" min="1" max="20">
         </div>
         <div>
-          <label for="setLimit">Batas kecepatan (KB/s, 0 = tanpa batas)</label>
+          <label for="setLimit">Batas kecepatan total (KB/s, 0 = tanpa batas)</label>
           <input id="setLimit" type="number" min="0">
         </div>
       </div>
+      <div class="set-group">Saat mengunduh</div>
       <label class="check"><input type="checkbox" id="setAsk"> Tampilkan dialog "Info unduhan" saat browser mengirim link</label>
+      <label class="check"><input type="checkbox" id="setClip"> Tawarkan unduhan saat link file disalin (Ctrl+C)</label>
       <label class="check"><input type="checkbox" id="setCat"> Pindahkan file selesai ke subfolder kategori (Video, Musik, Dokumen, …)</label>
+      <label class="check"><input type="checkbox" id="setSleep"> Cegah laptop sleep selama ada unduhan berjalan</label>
+      <div class="set-group">Aplikasi</div>
       <label class="check"><input type="checkbox" id="setLogin"> Jalankan Sedot otomatis saat Windows menyala (langsung ke tray)</label>
       <label class="check"><input type="checkbox" id="setTray"> Saat jendela ditutup, tetap berjalan di tray</label>
       <label class="check"><input type="checkbox" id="setNotify"> Tampilkan notifikasi</label>
       <div class="actions">
+        <button type="button" id="setExt" class="push-left">Panduan ekstensi browser</button>
         <button type="button" data-close>Batal</button>
         <button type="submit" class="primary">Simpan pengaturan</button>
       </div>
     </form>
   </dialog>
 
+  <script src="../helpers.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1,5 +1,7 @@
 'use strict';
-/* global sedot */
+/* global sedot, SedotHelpers */
+
+const H = SedotHelpers; // fungsi bersama dengan proses utama (src/helpers.js)
 
 const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -11,6 +13,10 @@ const ICONS = {
   down: '<path d="M12 4v12M6 11l6 6 6-6M5 20h14"/>',
   check: '<path d="M5 12l5 5 9-10"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/>',
+  puzzle: '<path d="M10 3h4v3a2 2 0 1 0 4 0V3h3v7h-3a2 2 0 1 0 0 4h3v7h-7v-3a2 2 0 1 0-4 0v3H3v-7h3a2 2 0 1 0 0-4H3V3z"/>',
+  power: '<path d="M12 3v9M6.3 7.3a8 8 0 1 0 11.4 0"/>',
+  clip: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
   Video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>',
   Musik: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
   Dokumen: '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 13h6M9 17h6"/>',
@@ -28,6 +34,8 @@ const $ = (id) => document.getElementById(id);
 let state = { items: [], stat: {}, bridge: 'off', engineError: null };
 let filter = 'all';
 let query = '';
+let sortKey = 'smart';
+let sortDir = 1;
 const selected = new Set();
 let anchor = null; // untuk shift+klik
 let categories = [];
@@ -47,7 +55,12 @@ function fmtEta(it) {
   if (m < 60) return `${m} mnt ${s} dtk`;
   return `${Math.floor(m / 60)} jam ${m % 60} mnt`;
 }
+function fmtTime(ms) {
+  if (!ms) return '—';
+  return new Date(ms).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const statusText = (it) => (it.status === 'error' ? it.error || STATUS.error : STATUS[it.status] || it.status);
 
 // ---------- Filter / sidebar ----------
 const FIXED = [
@@ -59,7 +72,7 @@ const FIXED = [
 function testFilter(i) {
   const f = FIXED.find((x) => x.id === filter);
   const okFilter = f ? f.test(i) : i.category === filter;
-  return okFilter && (!query || i.name.toLowerCase().includes(query));
+  return okFilter && (!query || i.name.toLowerCase().includes(query) || (i.description || '').toLowerCase().includes(query));
 }
 function renderSidebar() {
   const count = (t) => state.items.filter(t).length;
@@ -67,7 +80,7 @@ function renderSidebar() {
   let html = FIXED.map((f) => btn(f.id, f.label, f.ic, count(f.test))).join('');
   html += '<div class="group">Kategori</div>';
   html += categories.map((c) => btn(c, c, c, count((i) => i.category === c))).join('');
-  $('filters').innerHTML = html;
+  if ($('filters').dataset.html !== html) { $('filters').innerHTML = html; $('filters').dataset.html = html; }
 }
 $('filters').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-f]');
@@ -78,14 +91,33 @@ $('filters').addEventListener('click', (e) => {
 });
 $('search').addEventListener('input', (e) => { query = e.target.value.trim().toLowerCase(); render(); });
 
+// ---------- Pengurutan (klik judul kolom) ----------
+document.querySelectorAll('th[data-sort]').forEach((th) => {
+  th.addEventListener('click', () => {
+    const k = th.dataset.sort;
+    if (sortKey !== k) { sortKey = k; sortDir = k === 'name' ? 1 : -1; }
+    else if (sortDir === (k === 'name' ? 1 : -1)) sortDir = -sortDir;
+    else sortKey = 'smart'; // klik ketiga: kembali ke urutan bawaan
+    render();
+  });
+});
+function renderSortHeaders() {
+  document.querySelectorAll('th[data-sort]').forEach((th) => {
+    const on = th.dataset.sort === sortKey;
+    th.dataset.dir = on ? (sortDir > 0 ? 'asc' : 'desc') : '';
+    th.setAttribute('aria-sort', on ? (sortDir > 0 ? 'ascending' : 'descending') : 'none');
+  });
+}
+
 // ---------- Tabel ----------
 const rowsEl = $('rows');
 const rowMap = new Map();
 
-function visible() { return state.items.filter(testFilter); }
+function visible() { return H.sortItems(state.items.filter(testFilter), sortKey, sortDir); }
 
 function render() {
   renderSidebar();
+  renderSortHeaders();
   const list = visible();
   const seen = new Set();
   let prev = null;
@@ -111,11 +143,12 @@ function render() {
 
   $('empty').hidden = list.length > 0;
   $('empty').querySelector('.empty-title').textContent = state.items.length ? 'Tidak ada yang cocok' : 'Belum ada unduhan';
-  $('empty').querySelector('p:nth-child(2)').hidden = state.items.length > 0;
+  $('emptyText').hidden = state.items.length > 0;
   $('btnAddEmpty').hidden = state.items.length > 0;
 
   renderStatus();
   updateButtons();
+  renderDetailShell();
 }
 
 function updateRow(tr, it) {
@@ -133,22 +166,38 @@ function updateRow(tr, it) {
   c[2].lastChild.textContent = !known ? (it.status === 'error' ? '' : '—') : `${pct}%${it.status === 'active' && it.connections ? ` · ${it.connections} koneksi` : ''}`;
   c[3].textContent = it.status === 'active' ? `${fmtBytes(it.speed)}/s` : '';
   c[4].textContent = fmtEta(it);
-  c[5].textContent = STATUS[it.status] || it.status;
+  c[5].textContent = statusText(it);
   c[5].className = `c-status st-${it.status}`;
-  c[5].title = it.error || '';
+  c[5].title = it.errorHint || '';
   tr.classList.toggle('sel', selected.has(it.gid));
 }
 
 function renderStatus() {
   $('sbSpeed').textContent = `↓ ${fmtBytes(state.stat.speed || 0)}/s`;
   $('sbActive').textContent = state.stat.active ? `${state.stat.active} aktif` : '';
+
   const b = $('sbBridge');
-  const label = { on: 'Ekstensi browser: siap', 'port-in-use': 'Ekstensi browser: port 17345 dipakai program lain', error: 'Ekstensi browser: gagal dinyalakan', off: '' };
-  b.textContent = label[state.bridge] ?? '';
-  b.className = state.bridge === 'on' ? 'on' : '';
+  const seen = !!state.extensionSeen;
+  if (state.bridge === 'port-in-use') b.textContent = 'Ekstensi: port 17345 dipakai program lain';
+  else if (state.bridge === 'error') b.textContent = 'Ekstensi: penghubung gagal dinyalakan';
+  else b.textContent = seen ? 'Ekstensi browser: terhubung' : 'Ekstensi browser: belum terdeteksi';
+  b.className = `link small${seen && state.bridge === 'on' ? ' on' : ''}`;
+  b.title = 'Panduan memasang ekstensi browser';
+  $('btnExtGuide').hidden = seen;
+
   const u = state.update;
   $('sbUpdate').textContent = !u ? '' : u.status === 'downloading' ? `Mengunduh update ${u.version}… ${u.percent || 0}%` : `Versi ${u.version} siap`;
   $('btnUpdate').hidden = u?.status !== 'ready';
+
+  if (document.activeElement !== $('afterAll')) $('afterAll').value = state.afterAll || 'none';
+
+  const cd = state.countdown;
+  $('countdown').hidden = !cd;
+  if (cd) $('countdownText').textContent = `Semua unduhan selesai. ${cd.label} dalam ${cd.left} detik.`;
+
+  $('offer').hidden = !state.offer;
+  if (state.offer) $('offerName').textContent = state.offer.name || state.offer.url;
+
   const banner = $('banner');
   banner.hidden = !state.engineError;
   banner.textContent = state.engineError || '';
@@ -161,6 +210,8 @@ function updateButtons() {
   $('btnResume').disabled = !s.some((i) => i.status === 'paused' || i.status === 'error');
   $('btnRemove').disabled = s.length === 0;
 }
+
+function selectOnly(gid) { selected.clear(); selected.add(gid); anchor = gid; detailClosed = false; }
 
 rowsEl.addEventListener('click', (e) => {
   const tr = e.target.closest('tr');
@@ -175,18 +226,179 @@ rowsEl.addEventListener('click', (e) => {
     selected.has(gid) ? selected.delete(gid) : selected.add(gid);
     anchor = gid;
   } else {
-    selected.clear(); selected.add(gid); anchor = gid;
+    selectOnly(gid);
   }
   render();
+  refreshDetail();
 });
-rowsEl.addEventListener('dblclick', async (e) => {
+// Klik di area kosong tabel = batal pilih
+$('tableWrap').addEventListener('click', (e) => {
+  if (e.target.closest('tr') || e.target.closest('button')) return;
+  selected.clear();
+  render();
+});
+rowsEl.addEventListener('dblclick', (e) => {
+  const tr = e.target.closest('tr');
+  if (tr) openOrReveal(tr.dataset.gid);
+});
+async function openOrReveal(gid) {
+  const it = state.items.find((i) => i.gid === gid);
+  if (it?.status === 'complete') {
+    const err = await sedot.open(gid);
+    if (err) alert(err);
+  } else sedot.reveal(gid);
+}
+
+// ---------- Klik kanan ----------
+rowsEl.addEventListener('contextmenu', async (e) => {
   const tr = e.target.closest('tr');
   if (!tr) return;
-  const it = state.items.find((i) => i.gid === tr.dataset.gid);
-  if (it?.status === 'complete') {
-    const err = await sedot.open(it.gid);
-    if (err) alert(err);
-  } else sedot.reveal(tr.dataset.gid);
+  e.preventDefault();
+  if (!selected.has(tr.dataset.gid)) { selectOnly(tr.dataset.gid); render(); refreshDetail(); }
+  const s = selItems();
+  const one = s.length === 1 ? s[0] : null;
+  const canPause = s.some((i) => i.status === 'active' || i.status === 'waiting');
+  const canResume = s.some((i) => i.status === 'paused' || i.status === 'error');
+  const items = [
+    { id: 'open', label: 'Buka file', accel: 'Enter', enabled: one?.status === 'complete' },
+    { id: 'reveal', label: 'Buka folder', enabled: !!one },
+    { sep: true },
+    { id: 'resume', label: one?.status === 'error' ? 'Coba lagi' : 'Lanjutkan', accel: 'Space', enabled: canResume },
+    { id: 'pause', label: 'Jeda', accel: 'Space', enabled: canPause },
+    { id: 'replace', label: 'Ganti link…', enabled: !!one && one.status !== 'complete' },
+    { sep: true },
+    { id: 'copy', label: s.length > 1 ? `Salin ${s.length} link` : 'Salin link', enabled: s.some((i) => i.url) },
+    { sep: true },
+    { id: 'remove', label: s.length > 1 ? `Hapus ${s.length} unduhan…` : 'Hapus…', accel: 'Delete' },
+  ];
+  const id = await sedot.contextMenu(items);
+  runAction(id);
+});
+
+function runAction(id) {
+  const s = selItems();
+  const one = s.length === 1 ? s[0] : null;
+  if (id === 'open' && one) openOrReveal(one.gid);
+  else if (id === 'reveal' && one) sedot.reveal(one.gid);
+  else if (id === 'resume') sedot.resume([...selected]);
+  else if (id === 'pause') sedot.pause([...selected]);
+  else if (id === 'replace' && one) openReplace(one);
+  else if (id === 'copy') sedot.copyText(s.map((i) => i.url).filter(Boolean).join('\n'));
+  else if (id === 'remove') openRemove();
+}
+
+// ---------- Panel detail ----------
+let detailClosed = false;
+let detailGid = null;
+let detailData = null;
+
+function detailTarget() {
+  if (detailClosed || selected.size !== 1) return null;
+  return state.items.find((i) => selected.has(i.gid)) || null;
+}
+
+function renderDetailShell() {
+  const it = detailTarget();
+  $('detail').hidden = !it;
+  if (!it) { detailGid = null; return; }
+  if (detailGid !== it.gid) { detailGid = it.gid; detailData = null; refreshDetail(); }
+  $('dIcon').innerHTML = icon(it.category);
+  $('dName').textContent = it.name;
+  $('dName').title = it.name;
+  $('dOpen').hidden = it.status !== 'complete';
+  $('dReplace').hidden = it.status === 'complete';
+  const err = it.status === 'error';
+  $('dError').hidden = !err;
+  if (err) { $('dErrorText').textContent = `${it.error}.`; $('dErrorHint').textContent = it.errorHint || ''; $('dError').title = it.errorRaw || ''; }
+  drawSegments(it);
+}
+
+function drawSegments(it) {
+  const seg = $('dSeg');
+  const complete = it.status === 'complete';
+  let runs;
+  if (complete) runs = [{ from: 0, to: 1 }];
+  else if (detailData?.gid === it.gid && detailData.numPieces) runs = H.bitfieldRuns(detailData.bitfield, detailData.numPieces);
+  else runs = it.total ? [{ from: 0, to: it.done / it.total }] : [];
+  if (!runs.length && it.done > 0 && it.total) runs = [{ from: 0, to: it.done / it.total }];
+  // Digambar lewat DOM (bukan atribut style di HTML) karena CSP aplikasi melarang style inline.
+  const key = runs.map((r) => `${r.from.toFixed(4)}-${r.to.toFixed(4)}`).join(',');
+  if (seg.dataset.key !== key) {
+    seg.replaceChildren(...runs.map((r) => {
+      const el = document.createElement('i');
+      el.style.left = `${(r.from * 100).toFixed(3)}%`;
+      el.style.width = `${Math.max(0.15, (r.to - r.from) * 100).toFixed(3)}%`;
+      return el;
+    }));
+    seg.dataset.key = key;
+  }
+  seg.className = `seg${it.status === 'error' ? ' err' : complete ? ' ok' : ''}`;
+  const pct = it.total ? Math.floor((it.done / it.total) * 100) : complete ? 100 : 0;
+  const pieces = detailData?.numPieces ? ` · ${detailData.numPieces} potongan` : '';
+  $('dSegText').textContent = it.total ? `${fmtBytes(it.done)} dari ${fmtBytes(it.total)} (${pct}%)${complete ? '' : pieces}` : complete ? 'Selesai' : 'Ukuran belum diketahui';
+}
+
+async function refreshDetail() {
+  const it = detailTarget();
+  if (!it) return;
+  const d = await sedot.detail(it.gid);
+  if (!d || d.gid !== detailTarget()?.gid) return;
+  detailData = d;
+  $('dPath').textContent = d.path || '(belum dibuat)';
+  $('dPath').title = d.path || '';
+  $('dUrl').textContent = d.url || '—';
+  $('dUrl').title = d.url || '';
+  $('dCopy').disabled = !d.url;
+  $('dAdded').textContent = fmtTime(d.addedAt);
+  const complete = d.status === 'complete';
+  $('dDoneLbl').hidden = !complete;
+  $('dDone').hidden = !complete;
+  $('dDone').textContent = fmtTime(d.doneAt);
+  $('dNoteLbl').hidden = !d.description;
+  $('dNote').hidden = !d.description;
+  $('dNote').textContent = d.description;
+  $('dSide').hidden = complete;
+  if (!complete) {
+    const conns = d.connections || [];
+    $('dConns').innerHTML = conns.length
+      ? conns.map((c, i) => `<li><span>${i + 1}. ${esc(c.host)}</span><span>${fmtBytes(c.speed)}/s</span></li>`).join('')
+      : `<li class="muted">${d.status === 'active' ? 'Menyambung…' : 'Tidak ada koneksi aktif'}</li>`;
+    if (document.activeElement !== $('dLimit')) $('dLimit').value = d.limitKB || 0;
+  }
+  drawSegments(state.items.find((i) => i.gid === d.gid) || d);
+}
+setInterval(() => { if (!$('detail').hidden && !document.hidden) refreshDetail(); }, 1000);
+
+$('dClose').onclick = () => { detailClosed = true; render(); };
+$('dOpen').onclick = () => detailGid && openOrReveal(detailGid);
+$('dReveal').onclick = () => detailGid && sedot.reveal(detailGid);
+$('dCopy').onclick = () => detailData?.url && sedot.copyText(detailData.url);
+$('dReplace').onclick = () => { const it = detailTarget(); if (it) openReplace(it); };
+$('dLimitApply').onclick = async () => {
+  if (!detailGid) return;
+  await sedot.setLimit(detailGid, Number($('dLimit').value) || 0);
+  $('dLimitApply').textContent = 'Diterapkan';
+  setTimeout(() => { $('dLimitApply').textContent = 'Terapkan'; }, 1500);
+};
+$('dLimit').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('dLimitApply').click(); });
+
+// ---------- Ganti link ----------
+let replaceGid = null;
+function openReplace(it) {
+  replaceGid = it.gid;
+  $('replaceName').textContent = it.name;
+  $('replaceUrl').value = '';
+  $('replaceError').hidden = true;
+  $('dlgReplace').showModal();
+  $('replaceUrl').focus();
+}
+$('formReplace').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('replaceSubmit').disabled = true;
+  const r = await sedot.replaceUrl(replaceGid, $('replaceUrl').value);
+  $('replaceSubmit').disabled = false;
+  if (r?.error) { $('replaceError').textContent = r.error; $('replaceError').hidden = false; return; }
+  $('dlgReplace').close();
 });
 
 // ---------- Aksi ----------
@@ -199,19 +411,59 @@ $('btnAdd').onclick = openAdd;
 $('btnAddEmpty').onclick = openAdd;
 $('btnSettings').onclick = openSettings;
 $('btnUpdate').onclick = () => sedot.installUpdate();
+$('btnCancelCountdown').onclick = () => sedot.cancelCountdown();
+$('afterAll').onchange = (e) => sedot.setAfterAll(e.target.value);
+$('btnOfferYes').onclick = () => sedot.acceptOffer();
+$('btnOfferNo').onclick = () => sedot.dismissOffer();
+$('sbBridge').onclick = () => openExtGuide();
+$('btnExtGuide').onclick = () => openExtGuide();
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => b.closest('dialog').close(); });
 
 document.addEventListener('keydown', (e) => {
-  if (document.querySelector('dialog[open]') || e.target.matches('input, textarea')) return;
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); openAdd(); }
-  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); visible().forEach((i) => selected.add(i.gid)); render(); }
+  if (document.querySelector('dialog[open]')) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'f') { e.preventDefault(); $('search').focus(); $('search').select(); return; }
+  if (e.target.matches('input, textarea, select')) {
+    if (e.key === 'Escape' && e.target === $('search')) { $('search').value = ''; query = ''; e.target.blur(); render(); }
+    return;
+  }
+  if (mod && e.key.toLowerCase() === 'n') { e.preventDefault(); openAdd(); }
+  else if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); visible().forEach((i) => selected.add(i.gid)); render(); }
   else if (e.key === 'Delete' && selected.size) openRemove();
+  else if (e.key === 'Escape') { if (!$('detail').hidden) { detailClosed = true; } else selected.clear(); render(); }
   else if (e.key === ' ' && selected.size) {
     e.preventDefault();
     const s = selItems();
     if (s.some((i) => i.status === 'active' || i.status === 'waiting')) sedot.pause([...selected]);
     else sedot.resume([...selected]);
-  } else if (e.key === 'Enter' && selected.size === 1) rowsEl.querySelector('tr.sel')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  } else if (e.key === 'Enter' && selected.size === 1) openOrReveal([...selected][0]);
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const ids = visible().map((i) => i.gid);
+    if (!ids.length) return;
+    const cur = anchor ? ids.indexOf(anchor) : -1;
+    const next = ids[Math.max(0, Math.min(ids.length - 1, cur + (e.key === 'ArrowDown' ? 1 : -1)))];
+    selectOnly(next);
+    render();
+    refreshDetail();
+    rowMap.get(next)?.scrollIntoView({ block: 'nearest' });
+  }
+});
+
+// ---------- Seret & lepas link ke jendela ----------
+let dragDepth = 0;
+const linksFrom = (dt) => (dt.getData('text/uri-list') || dt.getData('text/plain') || '')
+  .split(/\r?\n/).map((s) => s.trim()).filter((s) => /^(https?|ftp):\/\//i.test(s));
+window.addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; $('dropHint').hidden = false; });
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('dropHint').hidden = true; } });
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dragDepth = 0;
+  $('dropHint').hidden = true;
+  const urls = linksFrom(e.dataTransfer);
+  if (urls.length === 1) sedot.addViaDialog(urls[0]);
+  else if (urls.length > 1) sedot.add(urls);
 });
 
 // Tambah
@@ -266,6 +518,22 @@ $('formRemove').addEventListener('submit', async (e) => {
   $('dlgRemove').close();
 });
 
+// Panduan ekstensi
+async function openExtGuide(welcome = false) {
+  const info = await sedot.extensionInfo();
+  $('extTitle').textContent = welcome ? 'Selamat datang di Sedot' : 'Pasang ekstensi browser';
+  $('extDir').textContent = info.dir;
+  $('extStatus').textContent = info.seen
+    ? 'Ekstensi sudah terhubung. Kalau sebelumnya kamu memasang ekstensi Sedot dari file zip, hapus yang lama (Remove) supaya unduhan tidak masuk dua kali.'
+    : 'Status: ekstensi belum terdeteksi. Setelah dipasang, klik ikon Sedot di toolbar browser sekali.';
+  $('extStatus').className = `ext-status${info.seen ? ' on' : ''}`;
+  $('dlgExt').showModal();
+}
+$('extOpenDir').onclick = () => sedot.openExtensionDir();
+$('extCopyUrl').onclick = () => { sedot.copyText('chrome://extensions'); $('extCopyUrl').textContent = 'Tersalin'; setTimeout(() => { $('extCopyUrl').textContent = 'Salin'; }, 1500); };
+$('dlgExt').addEventListener('close', () => sedot.setSettings({ onboarded: true }));
+$('setExt').onclick = () => { $('dlgSettings').close(); openExtGuide(); };
+
 // Pengaturan
 async function openSettings() {
   const s = await sedot.getSettings();
@@ -278,6 +546,8 @@ async function openSettings() {
   $('setNotify').checked = s.notify;
   $('setAsk').checked = s.askBeforeDownload;
   $('setLogin').checked = s.openAtLogin;
+  $('setClip').checked = s.watchClipboard;
+  $('setSleep').checked = s.preventSleep;
   $('dlgSettings').showModal();
 }
 $('setDirPick').onclick = async () => { const d = await sedot.chooseDir(); if (d) $('setDir').value = d; };
@@ -293,6 +563,8 @@ $('formSettings').addEventListener('submit', async (e) => {
     notify: $('setNotify').checked,
     askBeforeDownload: $('setAsk').checked,
     openAtLogin: $('setLogin').checked,
+    watchClipboard: $('setClip').checked,
+    preventSleep: $('setSleep').checked,
   });
   $('dlgSettings').close();
 });
@@ -304,4 +576,6 @@ $('formSettings').addEventListener('submit', async (e) => {
   state = await sedot.state();
   render();
   sedot.onState((s) => { state = s; render(); });
+  const s = await sedot.getSettings();
+  if (!s.onboarded) openExtGuide(true);
 })();

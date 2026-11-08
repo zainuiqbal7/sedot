@@ -21,12 +21,14 @@ function originAllowed(origin) {
  * @param {(job: object) => Promise<string>} o.onAdd  dipanggil dengan {url, filename, referer, cookie, userAgent}
  * @param {string} o.version
  * @param {number} [o.port]
+ * @param {() => void} [o.onSeen]  dipanggil setiap ada kontak dari ekstensi (untuk status "ekstensi terpasang")
  */
-function startBridge({ onAdd, version, port = BRIDGE_PORT }) {
+function startBridge({ onAdd, version, port = BRIDGE_PORT, onSeen }) {
   const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin;
     if (!originAllowed(origin)) return send(res, 403, { ok: false, error: 'origin ditolak' });
     if (origin) {
+      onSeen?.();
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST');

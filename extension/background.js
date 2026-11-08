@@ -3,7 +3,12 @@
 // Kalau aplikasi tidak berjalan, unduhan dibiarkan berjalan normal di browser.
 
 const APP = 'http://127.0.0.1:17345';
-const DEFAULTS = { capture: true };
+const DEFAULTS = { capture: true, skipSmall: true };
+const SMALL_BYTES = 256 * 1024; // file kecil lebih cepat langsung di browser, tanpa dialog
+
+async function ping() {
+  try { await fetch(`${APP}/ping`); } catch { /* aplikasi belum jalan */ }
+}
 
 chrome.runtime.onInstalled.addListener(async () => {
   const cur = await chrome.storage.local.get(DEFAULTS);
@@ -12,7 +17,9 @@ chrome.runtime.onInstalled.addListener(async () => {
     chrome.contextMenus.create({ id: 'sedot-link', title: 'Unduh dengan Sedot', contexts: ['link'] });
     chrome.contextMenus.create({ id: 'sedot-media', title: 'Unduh media ini dengan Sedot', contexts: ['image', 'video', 'audio'] });
   });
+  ping(); // supaya aplikasi langsung tahu ekstensi sudah terpasang
 });
+chrome.runtime.onStartup.addListener(ping);
 
 async function cookieHeader(url) {
   try {
@@ -57,13 +64,15 @@ function flashBadge(text, color) {
 const captured = new Set();
 
 chrome.downloads.onCreated.addListener(async (item) => {
-  const { capture } = await chrome.storage.local.get(DEFAULTS);
+  const { capture, skipSmall } = await chrome.storage.local.get(DEFAULTS);
   if (!capture) return;
   if (item.incognito) return; // jangan bawa cookie mode penyamaran keluar dari browser
   if (item.state !== 'in_progress') return;
   if (item.byExtensionId) return; // unduhan dari ekstensi lain dibiarkan
   const url = item.finalUrl || item.url;
   if (!/^(https?|ftp):\/\//i.test(url)) return; // blob:, data:, dll. tidak bisa diunduh dari luar browser
+  const size = item.totalBytes > 0 ? item.totalBytes : item.fileSize;
+  if (skipSmall && size > 0 && size < SMALL_BYTES) return;
   if (captured.has(url)) return;
 
   // Jeda dulu supaya browser tidak terus mengunduh selagi kita bertanya ke aplikasi.

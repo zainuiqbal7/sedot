@@ -1,7 +1,7 @@
 {
   "name": "sedot",
   "productName": "Sedot",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Download manager multi-koneksi dengan integrasi browser",
   "main": "src/main.js",
   "license": "MIT",
@@ -9,13 +9,15 @@
     "postinstall": "node scripts/get-aria2.js",
     "get-aria2": "node scripts/get-aria2.js",
     "start": "electron .",
-    "test": "node test/engine.test.js",
+    "test": "node test/helpers.test.js && node test/engine.test.js",
     "icons": "node scripts/make-icons.js",
-    "dist": "electron-builder --win --publish never"
+    "dist": "electron-builder --win --publish never",
+    "test:e2e": "node test/e2e.test.js"
   },
   "devDependencies": {
     "electron": "^45.2.3",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "playwright-core": "^1.65.0"
   },
   "build": {
     "appId": "id.sedot.app",
@@ -33,6 +35,10 @@
           "aria2c.exe",
           "aria2-*"
         ]
+      },
+      {
+        "from": "extension",
+        "to": "extension"
       }
     ],
     "win": {

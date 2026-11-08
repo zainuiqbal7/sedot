@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sedot – tangkap unduhan",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Kirim unduhan dari browser ke aplikasi Sedot di komputer ini.",
   "permissions": ["downloads", "contextMenus", "cookies", "storage"],
   "host_permissions": ["<all_urls>"],
