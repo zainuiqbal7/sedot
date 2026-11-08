@@ -123,7 +123,7 @@ function updateRow(tr, it) {
   const ic = c[0].querySelector('.ic');
   if (ic.dataset.cat !== it.category) { ic.innerHTML = icon(it.category); ic.dataset.cat = it.category; }
   c[0].querySelector('.t').textContent = it.name;
-  c[0].title = it.url ? `${it.name}\n${it.url}` : it.name;
+  c[0].title = [it.name, it.description, it.url].filter(Boolean).join('\n');
   c[1].textContent = it.total ? (it.status === 'complete' ? fmtBytes(it.total) : `${fmtBytes(it.done)} / ${fmtBytes(it.total)}`) : (it.done ? fmtBytes(it.done) : '—');
   const pct = it.total ? Math.floor((it.done / it.total) * 100) : (it.status === 'complete' ? 100 : 0);
   const bar = c[2].firstChild;
@@ -272,6 +272,7 @@ async function openSettings() {
   $('setCat').checked = s.categorize;
   $('setTray').checked = s.minimizeToTray;
   $('setNotify').checked = s.notify;
+  $('setAsk').checked = s.askBeforeDownload;
   $('dlgSettings').showModal();
 }
 $('setDirPick').onclick = async () => { const d = await sedot.chooseDir(); if (d) $('setDir').value = d; };
@@ -285,6 +286,7 @@ $('formSettings').addEventListener('submit', async (e) => {
     categorize: $('setCat').checked,
     minimizeToTray: $('setTray').checked,
     notify: $('setNotify').checked,
+    askBeforeDownload: $('setAsk').checked,
   });
   $('dlgSettings').close();
 });

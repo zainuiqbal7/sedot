@@ -43,6 +43,7 @@ Hasilnya ada di folder `dist\`: installer biasa dan versi *portable*. Karena ins
 |---|---|
 | Multi-koneksi | Sampai 16 koneksi per file (bisa diatur) |
 | Resume | Jeda dan lanjutkan kapan saja. Antrean juga bertahan setelah aplikasi atau komputer di-restart |
+| Dialog "Info unduhan" | Saat browser mengirim link, muncul jendela berisi nama file, ukuran (dideteksi sebelum unduh), kategori, folder, dan catatan. Folder bisa diingat per kategori. Tombolnya **Mulai unduh** (Enter), **Unduh nanti**, dan **Batal** (Esc). Bisa dimatikan di Pengaturan |
 | Integrasi browser | Unduhan di Chrome/Edge otomatis dialihkan ke Sedot, termasuk cookie login dan referer |
 | Klik kanan | Menu "Unduh dengan Sedot" untuk link, gambar, video, dan audio |
 | Kategori | File yang selesai dipindah ke subfolder Video, Musik, Dokumen, Gambar, Program, Arsip, atau Lainnya |

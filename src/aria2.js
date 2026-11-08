@@ -124,7 +124,7 @@ class Aria2 {
 
   /**
    * @param {string} url
-   * @param {object} [o] { dir, out, referer, cookie, userAgent }
+   * @param {object} [o] { dir, out, referer, cookie, userAgent, paused }
    */
   add(url, o = {}) {
     const opts = {};
@@ -132,6 +132,7 @@ class Aria2 {
     if (o.out) opts.out = sanitizeFilename(o.out);
     if (o.referer) opts.referer = o.referer;
     if (o.userAgent) opts['user-agent'] = o.userAgent;
+    if (o.paused) opts.pause = 'true'; // "Unduh nanti": masuk antrean dalam keadaan dijeda
     const headers = [];
     if (o.cookie) headers.push(`Cookie: ${o.cookie.replace(/[\r\n]/g, '')}`);
     if (headers.length) opts.header = headers;

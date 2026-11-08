@@ -11,6 +11,7 @@ const { Aria2 } = require('./aria2');
 const { startBridge } = require('./bridge');
 const { JsonFile } = require('./store');
 const { categoryOf, nameFromUrl, CATEGORIES } = require('./categories');
+const { probe } = require('./probe');
 
 const IS_WIN = process.platform === 'win32';
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png');
@@ -20,6 +21,7 @@ let tray = null;
 let aria = null;
 let settings = null;
 let history = null;
+let meta = null; // gid -> { description, keepPlace } untuk unduhan yang belum selesai
 let quitting = false;
 let pollTimer = null;
 let lastState = { items: [], stat: {}, bridge: 'off', engineError: null };
@@ -44,8 +46,11 @@ async function boot() {
     categorize: true,
     minimizeToTray: true,
     notify: true,
+    askBeforeDownload: true,
+    categoryDirs: {},
   });
   history = new JsonFile(path.join(userData, 'history.json'), []);
+  meta = new JsonFile(path.join(userData, 'meta.json'), {});
 
   createWindow();
   createTray();
@@ -66,7 +71,7 @@ async function boot() {
   }
 
   try {
-    await startBridge({ version: app.getVersion(), onAdd: (job) => addJob(job, true) });
+    await startBridge({ version: app.getVersion(), onAdd: (job) => (settings.data.askBeforeDownload ? openJobDialog(job) : addJob(job, true)) });
     lastState.bridge = 'on';
   } catch (e) {
     lastState.bridge = e.code === 'EADDRINUSE' ? 'port-in-use' : 'error';
@@ -175,6 +180,7 @@ app.on('will-quit', async (e) => {
   await a.stop().catch(() => {});
   history?.flush();
   settings?.flush();
+  meta?.flush();
   app.exit(0);
 });
 app.on('window-all-closed', () => {
@@ -193,7 +199,12 @@ async function addJob(job, fromBrowser = false) {
     referer: job.referer,
     cookie: job.cookie,
     userAgent: job.userAgent,
+    paused: job.paused,
   });
+  if (job.description || job.keepPlace) {
+    meta.data[gid] = { description: job.description || '', keepPlace: !!job.keepPlace };
+    meta.save();
+  }
   if (fromBrowser && settings.data.notify && Notification.isSupported()) {
     new Notification({ title: 'Sedot mengambil alih unduhan', body: job.filename || nameFromUrl(job.url) || job.url }).show();
   }
@@ -221,6 +232,7 @@ function toItem(s) {
     connections: Number(s.connections) || 0,
     category: categoryOf(name),
     error: s.errorMessage || '',
+    description: meta.data[s.gid]?.description || '',
   };
 }
 
@@ -252,7 +264,8 @@ async function finalize(it) {
   finalizing.add(it.gid);
   try {
     let finalPath = it.path;
-    if (settings.data.categorize && finalPath && path.dirname(finalPath) === path.resolve(settings.data.downloadDir)) {
+    const m = meta.data[it.gid] || {};
+    if (!m.keepPlace && settings.data.categorize && finalPath && path.dirname(finalPath) === path.resolve(settings.data.downloadDir)) {
       const target = uniquePath(path.join(settings.data.downloadDir, it.category, path.basename(finalPath)));
       try {
         fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -268,8 +281,11 @@ async function finalize(it) {
       url: it.url,
       total: it.total,
       category: it.category,
+      description: m.description || undefined,
       doneAt: Date.now(),
     });
+    delete meta.data[it.gid];
+    meta.save();
     history.data = history.data.slice(0, 2000);
     history.save();
     await aria?.call('removeDownloadResult', it.gid).catch(() => {});
@@ -383,6 +399,7 @@ ipcMain.handle('remove', async (_e, { gids, deleteFiles }) => {
         await waitStopped(g);
       }
       await aria.call('removeDownloadResult', g).catch(() => {});
+      if (meta.data[g]) { delete meta.data[g]; meta.save(); }
     }
     if (deleteFiles && it.path) {
       unlinkQuiet(it.path);
@@ -418,7 +435,7 @@ ipcMain.handle('setSettings', async (_e, s) => {
   d.connections = num(s.connections, 1, 16, d.connections);
   d.maxConcurrent = num(s.maxConcurrent, 1, 20, d.maxConcurrent);
   d.speedLimitKB = num(s.speedLimitKB, 0, 10_000_000, d.speedLimitKB);
-  for (const k of ['categorize', 'minimizeToTray', 'notify']) if (typeof s[k] === 'boolean') d[k] = s[k];
+  for (const k of ['categorize', 'minimizeToTray', 'notify', 'askBeforeDownload']) if (typeof s[k] === 'boolean') d[k] = s[k];
   settings.save();
   await aria?.applyOptions(d).catch(() => {});
   return d;
@@ -427,4 +444,125 @@ ipcMain.handle('setSettings', async (_e, s) => {
 ipcMain.handle('chooseDir', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], defaultPath: settings.data.downloadDir });
   return r.canceled ? null : r.filePaths[0];
+});
+
+// ---------- Dialog "Info unduhan" (muncul saat browser mengirim link) ----------
+
+const jobs = new Map();
+let jobSeq = 0;
+
+/** Folder tujuan untuk sebuah kategori: folder yang diingat, atau subfolder kategori, atau folder utama. */
+function dirFor(cat) {
+  const remembered = settings.data.categoryDirs?.[cat];
+  if (remembered) return remembered;
+  return settings.data.categorize ? path.join(settings.data.downloadDir, cat) : settings.data.downloadDir;
+}
+
+function openJobDialog(job) {
+  const id = String(++jobSeq);
+  const name0 = job.filename || nameFromUrl(job.url) || '';
+  const category = categoryOf(name0);
+  const entry = { job, info: { url: job.url, filename: name0, category, dir: dirFor(category), size: 0, probing: true }, win: null };
+  jobs.set(id, entry);
+
+  const w = new BrowserWindow({
+    width: 640,
+    height: 380,
+    useContentSize: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    title: 'Info unduhan',
+    icon: ICON,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#f6f7f9',
+    webPreferences: {
+      preload: path.join(__dirname, 'job-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  entry.win = w;
+  w.loadFile(path.join(__dirname, 'renderer', 'job.html'), { query: { id } });
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.once('ready-to-show', () => { w.show(); w.focus(); });
+  w.on('closed', () => jobs.delete(id));
+
+  probe(job)
+    .then((r) => {
+      const name = job.filename || r.filename || name0;
+      Object.assign(entry.info, { size: r.size, resumable: r.resumable, filename: name, category: categoryOf(name) });
+      entry.info.dir = dirFor(entry.info.category);
+    })
+    .catch((e) => { entry.info.probeError = String(e.message || e); })
+    .finally(() => {
+      entry.info.probing = false;
+      if (!w.isDestroyed()) w.webContents.send('job:update', entry.info);
+    });
+
+  return Promise.resolve(`dialog-${id}`);
+}
+
+/** Pastikan permintaan IPC datang dari jendela dialog milik job itu sendiri. */
+function jobFor(e, id) {
+  const entry = jobs.get(String(id));
+  return entry && entry.win && !entry.win.isDestroyed() && e.sender === entry.win.webContents ? entry : null;
+}
+
+ipcMain.handle('job:get', (e, id) => {
+  const entry = jobFor(e, id);
+  if (!entry) return null;
+  return {
+    info: entry.info,
+    categories: CATEGORIES,
+    dirs: Object.fromEntries(CATEGORIES.map((c) => [c, dirFor(c)])),
+  };
+});
+
+ipcMain.handle('job:chooseDir', async (e, { id, current }) => {
+  const entry = jobFor(e, id);
+  if (!entry) return null;
+  const r = await dialog.showOpenDialog(entry.win, { properties: ['openDirectory', 'createDirectory'], defaultPath: current || settings.data.downloadDir });
+  return r.canceled ? null : r.filePaths[0];
+});
+
+ipcMain.handle('job:decide', async (e, d) => {
+  const entry = jobFor(e, d?.id);
+  if (!entry) return { error: 'Dialog sudah tidak berlaku.' };
+  if (d.action === 'cancel') { entry.win.close(); return { ok: true }; }
+
+  const dir = typeof d.dir === 'string' && d.dir.trim() ? path.resolve(d.dir.trim()) : entry.info.dir;
+  const filename = typeof d.filename === 'string' ? d.filename.trim() : '';
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    return { error: `Folder tidak bisa dibuat: ${err.message}` };
+  }
+  if (d.remember && CATEGORIES.includes(d.category)) {
+    settings.data.categoryDirs = { ...settings.data.categoryDirs, [d.category]: dir };
+  }
+  if (d.dontAsk) settings.data.askBeforeDownload = false;
+  settings.save();
+
+  try {
+    await addJob({
+      ...entry.job,
+      dir,
+      filename: filename || undefined,
+      paused: d.action === 'later',
+      description: typeof d.description === 'string' ? d.description.slice(0, 500) : '',
+      keepPlace: true, // pengguna sudah memilih folder sendiri: jangan dipindah lagi
+    });
+  } catch (err) {
+    return { error: String(err.message || err) };
+  }
+  entry.win.close();
+  if (d.action === 'start' && settings.data.notify && Notification.isSupported()) {
+    new Notification({ title: 'Mulai mengunduh', body: filename || entry.info.filename || entry.job.url }).show();
+  }
+  return { ok: true };
 });

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Info unduhan</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="job.css">
+</head>
+<body>
+  <form id="form" class="job" autocomplete="off">
+    <header class="head">
+      <span id="typeIcon" class="type"></span>
+      <div class="head-text">
+        <div id="title" class="title">…</div>
+        <div id="sub" class="sub"></div>
+      </div>
+      <div id="size" class="size">Memeriksa…</div>
+    </header>
+
+    <div class="fields">
+      <label for="url">URL</label>
+      <input id="url" type="text" readonly spellcheck="false">
+
+      <label for="category">Kategori</label>
+      <select id="category"></select>
+
+      <label for="filename">Nama file</label>
+      <input id="filename" type="text" spellcheck="false">
+
+      <label for="dir">Simpan di</label>
+      <div class="row">
+        <input id="dir" type="text" spellcheck="false">
+        <button type="button" id="pick">Pilih…</button>
+      </div>
+
+      <span></span>
+      <label class="check"><input type="checkbox" id="remember"> <span id="rememberText">Ingat folder ini untuk kategori ini</span></label>
+
+      <label for="desc">Catatan</label>
+      <input id="desc" type="text" placeholder="Opsional, misalnya: episode 7 sub indo" maxlength="500">
+    </div>
+
+    <p id="error" class="error" hidden></p>
+
+    <footer class="foot">
+      <label class="check small"><input type="checkbox" id="dontAsk"> Lain kali langsung unduh tanpa dialog ini</label>
+      <span class="grow"></span>
+      <button type="button" id="cancel">Batal</button>
+      <button type="button" id="later" title="Masuk daftar dalam keadaan dijeda">Unduh nanti</button>
+      <button type="submit" id="start" class="primary">Mulai unduh</button>
+    </footer>
+  </form>
+  <script src="job.js"></script>
+</body>
+</html>
