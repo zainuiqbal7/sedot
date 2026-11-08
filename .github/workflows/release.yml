@@ -33,3 +33,11 @@ jobs:
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Lampirkan ekstensi browser ke rilis yang sama
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          Compress-Archive -Path extension\* -DestinationPath sedot-extension.zip
+          gh release upload "v$v" sedot-extension.zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

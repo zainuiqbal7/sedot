@@ -9,33 +9,47 @@ Download manager untuk Windows yang mengunduh tiap file lewat banyak koneksi sek
 └──────────────┘                  └──────────────────┘             └─────────┘
 ```
 
-## Cara menjalankan (Windows)
+## Cara memasang (Windows)
 
-1. Pasang **Node.js 22 LTS** atau lebih baru dari https://nodejs.org (pilih "LTS", lalu Next, Next, Finish).
-2. Ekstrak folder `sedot`, lalu buka **PowerShell** di dalam folder itu. Caranya: klik kanan di ruang kosong folder, pilih *Open in Terminal*.
-3. Pasang dependensi. Langkah ini juga otomatis mengunduh `aria2c.exe` resmi dan memeriksa hash SHA-256-nya:
-   ```
-   npm install
-   ```
-4. Jalankan aplikasinya:
-   ```
-   npm start
-   ```
+1. Buka **[Releases](https://github.com/zainuiqbal7/sedot/releases/latest)**, lalu unduh `Sedot-Setup-x.y.z.exe`.
+2. Jalankan installer-nya. Karena installer belum ditandatangani sertifikat berbayar, Windows SmartScreen akan menampilkan peringatan. Klik **More info**, lalu **Run anyway**.
+3. Sedot muncul di Start Menu dan Desktop. Tidak perlu Node.js atau Terminal.
+
+Kalau sebelumnya kamu menjalankan Sedot dengan `npm start`, pengaturan dan riwayatmu tetap terpakai karena lokasinya sama.
 
 ### Memasang ekstensi browser
 
-1. Buka `chrome://extensions` (untuk Edge: `edge://extensions`).
-2. Nyalakan **Developer mode** (pojok kanan atas di Chrome, sidebar kiri di Edge).
-3. Klik **Load unpacked**, lalu pilih folder `sedot\extension`.
+1. Unduh `sedot-extension.zip` dari halaman Releases yang sama, lalu ekstrak ke folder yang **tidak akan kamu hapus**, misalnya `Documents\sedot-extension`.
+2. Buka `chrome://extensions` (untuk Edge: `edge://extensions`).
+3. Nyalakan **Developer mode**, klik **Load unpacked**, lalu pilih folder hasil ekstrak tadi.
 4. Sematkan ikon Sedot di toolbar. Klik ikonnya untuk memastikan statusnya **"Terhubung ke aplikasi Sedot"**.
 
-### Membuat installer `.exe` (opsional)
+### Update otomatis
+
+Sedot mengecek versi baru di GitHub Releases saat dibuka, lalu setiap 6 jam. Kalau ada versi baru:
+
+1. Update diunduh di latar belakang. Progresnya terlihat di status bar.
+2. Setelah selesai, muncul tombol **Restart & pasang update**.
+3. Kalau tombolnya tidak diklik, update tetap terpasang otomatis saat Sedot ditutup lewat tray, lalu *Keluar*.
+
+## Untuk pengembang
+
+### Menjalankan dari kode
 
 ```
-npm run dist
+npm install      # juga mengunduh aria2c.exe resmi + cek SHA-256
+npm start
 ```
 
-Hasilnya ada di folder `dist\`: installer biasa dan versi *portable*. Karena installer ini tidak ditandatangani, Windows SmartScreen akan menampilkan peringatan. Klik *More info*, lalu *Run anyway*.
+### Merilis versi baru
+
+1. Naikkan `"version"` di `package.json`, misalnya `0.3.0` menjadi `0.3.1`, lalu commit dan push ke `main`.
+2. Picu build lewat salah satu cara berikut:
+   - Push tag dengan `git tag v0.3.1` lalu `git push origin v0.3.1`.
+   - Atau buka tab **Actions**, pilih **Rilis**, lalu klik **Run workflow**.
+3. GitHub Actions menjalankan uji, membangun installer di Windows, dan menerbitkannya di Releases. Semua Sedot yang terpasang akan ter-update sendiri.
+
+Untuk membuat installer secara lokal tanpa menerbitkan: `npm run dist`. Hasilnya ada di `dist\`.
 
 ## Fitur
 
@@ -51,6 +65,8 @@ Hasilnya ada di folder `dist\`: installer biasa dan versi *portable*. Karena ins
 | Tray | Tetap berjalan di tray saat jendela ditutup, supaya ekstensi tetap bisa mengirim link |
 | Coba lagi | Unduhan yang gagal bisa dilanjutkan dengan tombol **Lanjutkan** |
 | Mode gelap | Mengikuti tema Windows |
+| Update otomatis | Versi baru diunduh di latar belakang dari GitHub Releases |
+| Jalan saat Windows menyala | Opsional, langsung ke tray supaya ekstensi selalu tersambung |
 
 **Pintasan keyboard:** `Ctrl+N` tambah URL, `Spasi` jeda/lanjut, `Delete` hapus, `Enter` buka file, `Ctrl+A` pilih semua.
 
@@ -70,7 +86,7 @@ Hasilnya ada di folder `dist\`: installer biasa dan versi *portable*. Karena ins
 - **Video grabber** (tombol "unduh video ini" di atas pemutar video) belum ada.
 - Baru diuji dengan Chrome/Chromium. Edge memakai mesin yang sama, jadi seharusnya berfungsi juga. Firefox belum didukung.
 
-## Pengembangan
+## Uji & struktur kode
 
 ```
 npm test          # uji mesin: multi-koneksi, resume, keamanan bridge (butuh aria2c di PATH)
