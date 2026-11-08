@@ -146,6 +146,9 @@ function renderStatus() {
   const label = { on: 'Ekstensi browser: siap', 'port-in-use': 'Ekstensi browser: port 17345 dipakai program lain', error: 'Ekstensi browser: gagal dinyalakan', off: '' };
   b.textContent = label[state.bridge] ?? '';
   b.className = state.bridge === 'on' ? 'on' : '';
+  const u = state.update;
+  $('sbUpdate').textContent = !u ? '' : u.status === 'downloading' ? `Mengunduh update ${u.version}… ${u.percent || 0}%` : `Versi ${u.version} siap`;
+  $('btnUpdate').hidden = u?.status !== 'ready';
   const banner = $('banner');
   banner.hidden = !state.engineError;
   banner.textContent = state.engineError || '';
@@ -195,6 +198,7 @@ $('btnRemove').onclick = openRemove;
 $('btnAdd').onclick = openAdd;
 $('btnAddEmpty').onclick = openAdd;
 $('btnSettings').onclick = openSettings;
+$('btnUpdate').onclick = () => sedot.installUpdate();
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => b.closest('dialog').close(); });
 
 document.addEventListener('keydown', (e) => {
@@ -273,6 +277,7 @@ async function openSettings() {
   $('setTray').checked = s.minimizeToTray;
   $('setNotify').checked = s.notify;
   $('setAsk').checked = s.askBeforeDownload;
+  $('setLogin').checked = s.openAtLogin;
   $('dlgSettings').showModal();
 }
 $('setDirPick').onclick = async () => { const d = await sedot.chooseDir(); if (d) $('setDir').value = d; };
@@ -287,6 +292,7 @@ $('formSettings').addEventListener('submit', async (e) => {
     minimizeToTray: $('setTray').checked,
     notify: $('setNotify').checked,
     askBeforeDownload: $('setAsk').checked,
+    openAtLogin: $('setLogin').checked,
   });
   $('dlgSettings').close();
 });
@@ -294,6 +300,7 @@ $('formSettings').addEventListener('submit', async (e) => {
 // ---------- Mulai ----------
 (async () => {
   categories = (await sedot.categories()).filter((c) => c !== 'Lainnya').concat('Lainnya');
+  $('version').textContent = `Versi ${await sedot.version()}`;
   state = await sedot.state();
   render();
   sedot.onState((s) => { state = s; render(); });

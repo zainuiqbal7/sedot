@@ -11,6 +11,7 @@
     <aside class="sidebar">
       <div class="brand"><img src="../../assets/icon.png" alt=""> Sedot</div>
       <nav id="filters" aria-label="Filter unduhan"></nav>
+      <div id="version" class="version"></div>
     </aside>
 
     <main class="main">
@@ -55,6 +56,8 @@
         <span id="sbSpeed">0 B/s</span>
         <span id="sbActive"></span>
         <span class="grow"></span>
+        <span id="sbUpdate"></span>
+        <button id="btnUpdate" class="primary small" hidden>Restart &amp; pasang update</button>
         <span id="sbBridge"></span>
       </footer>
     </main>
@@ -114,6 +117,7 @@
       </div>
       <label class="check"><input type="checkbox" id="setAsk"> Tampilkan dialog "Info unduhan" saat browser mengirim link</label>
       <label class="check"><input type="checkbox" id="setCat"> Pindahkan file selesai ke subfolder kategori (Video, Musik, Dokumen, …)</label>
+      <label class="check"><input type="checkbox" id="setLogin"> Jalankan Sedot otomatis saat Windows menyala (langsung ke tray)</label>
       <label class="check"><input type="checkbox" id="setTray"> Saat jendela ditutup, tetap berjalan di tray</label>
       <label class="check"><input type="checkbox" id="setNotify"> Tampilkan notifikasi</label>
       <div class="actions">

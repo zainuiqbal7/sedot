@@ -1,0 +1,35 @@
+# Setiap kali tag versi (mis. v0.3.1) di-push, GitHub membangun installer di Windows
+# dan menerbitkannya di Releases. Aplikasi Sedot yang terpasang akan mengambilnya otomatis.
+name: Rilis
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: sudo apt-get update && sudo apt-get install -y aria2
+      - run: npm ci
+      - run: npm test
+
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci # juga mengunduh aria2c.exe resmi + cek SHA-256
+      - name: Bangun installer & terbitkan ke Releases
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

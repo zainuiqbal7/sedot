@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld('sedot', {
   getSettings: () => ipcRenderer.invoke('getSettings'),
   setSettings: (s) => ipcRenderer.invoke('setSettings', s),
   chooseDir: () => ipcRenderer.invoke('chooseDir'),
+  version: () => ipcRenderer.invoke('version'),
+  installUpdate: () => ipcRenderer.invoke('installUpdate'),
 });

@@ -27,14 +27,13 @@ function fileServer() {
       ...(m ? { 'Content-Range': `bytes ${start}-${end}/${SIZE}` } : {}),
       'Content-Type': 'application/octet-stream',
     });
-    if (process.env.DBG) console.log((Date.now()%100000), req.headers.range);
     open++; maxParallel = Math.max(maxParallel, open);
     let pos = start;
     const t = setInterval(() => {
       if (res.destroyed) { clearInterval(t); return; }
       const n = Math.min(Math.floor(PER_CONN_BPS / 10), end + 1 - pos);
       res.write(DATA.subarray(pos, pos + n)); pos += n;
-      if (pos > end) { clearInterval(t); res.end(); if (process.env.DBG) console.log('end', Date.now()%100000, start); }
+      if (pos > end) { clearInterval(t); res.end(); }
     }, 100);
     res.on('close', () => { clearInterval(t); open--; });
   });

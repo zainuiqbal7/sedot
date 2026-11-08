@@ -1,7 +1,7 @@
 {
   "name": "sedot",
   "productName": "Sedot",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Download manager multi-koneksi dengan integrasi browser",
   "main": "src/main.js",
   "license": "MIT",
@@ -11,7 +11,7 @@
     "start": "electron .",
     "test": "node test/engine.test.js",
     "icons": "node scripts/make-icons.js",
-    "dist": "electron-builder --win"
+    "dist": "electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "^45.2.3",
@@ -20,9 +20,58 @@
   "build": {
     "appId": "id.sedot.app",
     "productName": "Sedot",
-    "files": ["src/**", "assets/**", "package.json"],
-    "extraResources": [{ "from": "bin", "to": "bin", "filter": ["aria2c.exe", "aria2-*"] }],
-    "win": { "target": ["nsis", "portable"], "icon": "assets/icon.png" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true }
+    "files": [
+      "src/**",
+      "assets/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "aria2c.exe",
+          "aria2-*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "artifactName": "Sedot-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Sedot",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zainuiqbal7",
+        "repo": "sedot",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "author": "zainuiqbal7",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zainuiqbal7/sedot.git"
   }
 }

@@ -140,3 +140,7 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
   .c-status { width: 90px; }
 }
 table { min-width: 560px; }
+
+.version { margin-top: auto; padding: 12px 8px 0; font-size: 11px; color: var(--muted); }
+.statusbar { align-items: center; }
+button.small { padding: 2px 8px; font-size: 12px; }

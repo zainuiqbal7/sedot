@@ -48,12 +48,14 @@ async function boot() {
     notify: true,
     askBeforeDownload: true,
     categoryDirs: {},
+    openAtLogin: false,
   });
   history = new JsonFile(path.join(userData, 'history.json'), []);
   meta = new JsonFile(path.join(userData, 'meta.json'), {});
 
-  createWindow();
+  createWindow({ hidden: process.argv.includes('--hidden') });
   createTray();
+  setupUpdater();
 
   try {
     fs.mkdirSync(settings.data.downloadDir, { recursive: true });
@@ -111,8 +113,9 @@ function freePort() {
 
 // ---------- Window & tray ----------
 
-function createWindow() {
+function createWindow({ hidden = false } = {}) {
   win = new BrowserWindow({
+    show: !hidden, // saat dinyalakan otomatis bersama Windows, langsung ke tray
     width: 1100,
     height: 680,
     minWidth: 760,
@@ -181,7 +184,7 @@ app.on('will-quit', async (e) => {
   history?.flush();
   settings?.flush();
   meta?.flush();
-  app.exit(0);
+  app.quit(); // aria sudah null, jadi kali ini keluar sungguhan (dan installer update bisa berjalan)
 });
 app.on('window-all-closed', () => {
   if (!tray) { quitting = true; app.quit(); }
@@ -349,6 +352,12 @@ function unlinkQuiet(p) {
 // ---------- IPC dari UI ----------
 
 ipcMain.handle('state', () => lastState);
+ipcMain.handle('version', () => app.getVersion());
+ipcMain.handle('installUpdate', () => {
+  if (lastState.update?.status !== 'ready' || !autoUpdater) return;
+  quitting = true;
+  autoUpdater.quitAndInstall(true, true); // diam-diam, lalu buka lagi Sedot versi baru
+});
 ipcMain.handle('categories', () => CATEGORIES);
 
 ipcMain.handle('add', async (_e, { urls, dir }) => {
@@ -435,6 +444,10 @@ ipcMain.handle('setSettings', async (_e, s) => {
   d.connections = num(s.connections, 1, 16, d.connections);
   d.maxConcurrent = num(s.maxConcurrent, 1, 20, d.maxConcurrent);
   d.speedLimitKB = num(s.speedLimitKB, 0, 10_000_000, d.speedLimitKB);
+  if (typeof s.openAtLogin === 'boolean') {
+    d.openAtLogin = s.openAtLogin;
+    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: d.openAtLogin, args: ['--hidden'] });
+  }
   for (const k of ['categorize', 'minimizeToTray', 'notify', 'askBeforeDownload']) if (typeof s[k] === 'boolean') d[k] = s[k];
   settings.save();
   await aria?.applyOptions(d).catch(() => {});
@@ -566,3 +579,44 @@ ipcMain.handle('job:decide', async (e, d) => {
   }
   return { ok: true };
 });
+
+// ---------- Update otomatis (GitHub Releases) ----------
+
+let autoUpdater = null;
+
+function setupUpdater() {
+  if (!app.isPackaged) return; // mode pengembangan (npm start) tidak mengecek update
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch {
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true; // kalau tidak di-restart manual, terpasang saat Sedot ditutup
+
+  autoUpdater.on('update-available', (info) => {
+    lastState.update = { status: 'downloading', version: info.version, percent: 0 };
+    send();
+  });
+  autoUpdater.on('download-progress', (p) => {
+    if (lastState.update) lastState.update.percent = Math.round(p.percent);
+    send();
+  });
+  autoUpdater.on('update-downloaded', (info) => {
+    lastState.update = { status: 'ready', version: info.version };
+    send();
+    if (settings.data.notify && Notification.isSupported()) {
+      const n = new Notification({ title: `Sedot ${info.version} siap dipasang`, body: 'Klik untuk restart sekarang, atau biarkan: terpasang otomatis saat Sedot ditutup.' });
+      n.on('click', () => { quitting = true; autoUpdater.quitAndInstall(true, true); });
+      n.show();
+    }
+  });
+  autoUpdater.on('error', () => {
+    if (lastState.update?.status === 'downloading') lastState.update = null;
+    send();
+  });
+
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 5000);
+  setInterval(check, 6 * 60 * 60 * 1000); // cek lagi tiap 6 jam
+}
