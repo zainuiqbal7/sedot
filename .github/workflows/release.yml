@@ -29,6 +29,15 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci # juga mengunduh aria2c.exe resmi + cek SHA-256
+      - name: Buat tag versi kalau belum ada (untuk Run workflow manual)
+        shell: pwsh
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          git fetch --tags --quiet
+          if (-not (git tag -l "v$v")) {
+            git tag "v$v"
+            git push origin "v$v"
+          }
       - name: Bangun installer & terbitkan ke Releases
         run: npx electron-builder --win --publish always
         env:
