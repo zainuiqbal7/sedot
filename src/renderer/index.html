@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Sedot</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><img src="../../assets/icon.png" alt=""> Sedot</div>
+      <nav id="filters" aria-label="Filter unduhan"></nav>
+    </aside>
+
+    <main class="main">
+      <header class="toolbar">
+        <button id="btnAdd" class="primary" title="Tambah URL (Ctrl+N)"><span class="ic" data-ic="plus"></span><span class="lbl keep">Tambah URL</span></button>
+        <span class="sep"></span>
+        <button id="btnResume" title="Lanjutkan / coba lagi (Spasi)"><span class="ic" data-ic="play"></span><span class="lbl">Lanjutkan</span></button>
+        <button id="btnPause" title="Jeda (Spasi)"><span class="ic" data-ic="pause"></span><span class="lbl">Jeda</span></button>
+        <button id="btnRemove" title="Hapus (Delete)"><span class="ic" data-ic="trash"></span><span class="lbl">Hapus</span></button>
+        <span class="sep"></span>
+        <button id="btnPauseAll" title="Jeda semua"><span class="ic" data-ic="pause"></span><span class="lbl opt">Jeda semua</span></button>
+        <button id="btnResumeAll" title="Lanjutkan semua"><span class="ic" data-ic="play"></span><span class="lbl opt">Lanjutkan semua</span></button>
+        <span class="grow"></span>
+        <input id="search" type="search" placeholder="Cari nama file" aria-label="Cari">
+        <button id="btnSettings" class="icon-only" title="Pengaturan" aria-label="Pengaturan"><span class="ic" data-ic="gear"></span></button>
+      </header>
+
+      <div id="banner" class="banner" hidden></div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="c-name">Nama</th>
+              <th class="c-size">Ukuran</th>
+              <th class="c-prog">Progres</th>
+              <th class="c-speed">Kecepatan</th>
+              <th class="c-eta">Sisa waktu</th>
+              <th class="c-status">Status</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div id="empty" class="empty" hidden>
+          <p class="empty-title">Belum ada unduhan</p>
+          <p>Tempel link dengan <b>Tambah URL</b>, atau pasang ekstensi browser supaya link otomatis masuk ke sini.</p>
+          <button id="btnAddEmpty" class="primary"><span class="ic" data-ic="plus"></span>Tambah URL</button>
+        </div>
+      </div>
+
+      <footer class="statusbar">
+        <span id="sbSpeed">0 B/s</span>
+        <span id="sbActive"></span>
+        <span class="grow"></span>
+        <span id="sbBridge"></span>
+      </footer>
+    </main>
+  </div>
+
+  <dialog id="dlgAdd">
+    <form method="dialog" id="formAdd">
+      <h2>Tambah unduhan</h2>
+      <label for="addUrls">Link (satu per baris)</label>
+      <textarea id="addUrls" rows="5" spellcheck="false" placeholder="https://contoh.com/file.zip"></textarea>
+      <p id="addError" class="error" hidden></p>
+      <label for="addDir">Simpan ke folder</label>
+      <div class="row">
+        <input id="addDir" type="text" spellcheck="false">
+        <button type="button" id="addDirPick">Pilih…</button>
+      </div>
+      <div class="actions">
+        <button type="button" data-close>Batal</button>
+        <button type="submit" class="primary" id="addSubmit">Mulai unduh</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgRemove">
+    <form method="dialog" id="formRemove">
+      <h2 id="removeTitle">Hapus unduhan?</h2>
+      <p id="removeNames" class="muted"></p>
+      <label class="check"><input type="checkbox" id="removeFiles"> Hapus juga file-nya dari disk</label>
+      <div class="actions">
+        <button type="button" data-close>Batal</button>
+        <button type="submit" class="danger" id="removeSubmit">Hapus</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgSettings">
+    <form method="dialog" id="formSettings">
+      <h2>Pengaturan</h2>
+      <label for="setDir">Folder unduhan</label>
+      <div class="row">
+        <input id="setDir" type="text" spellcheck="false">
+        <button type="button" id="setDirPick">Pilih…</button>
+      </div>
+      <div class="grid2">
+        <div>
+          <label for="setConn">Koneksi per file (1–16)</label>
+          <input id="setConn" type="number" min="1" max="16">
+        </div>
+        <div>
+          <label for="setConc">Unduhan bersamaan (1–20)</label>
+          <input id="setConc" type="number" min="1" max="20">
+        </div>
+        <div>
+          <label for="setLimit">Batas kecepatan (KB/s, 0 = tanpa batas)</label>
+          <input id="setLimit" type="number" min="0">
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="setCat"> Pindahkan file selesai ke subfolder kategori (Video, Musik, Dokumen, …)</label>
+      <label class="check"><input type="checkbox" id="setTray"> Saat jendela ditutup, tetap berjalan di tray</label>
+      <label class="check"><input type="checkbox" id="setNotify"> Tampilkan notifikasi</label>
+      <div class="actions">
+        <button type="button" data-close>Batal</button>
+        <button type="submit" class="primary">Simpan pengaturan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
