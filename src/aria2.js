@@ -124,7 +124,7 @@ class Aria2 {
 
   /**
    * @param {string} url
-   * @param {object} [o] { dir, out, referer, cookie, userAgent, paused }
+   * @param {object} [o] { dir, out, referer, cookie, userAgent, paused, headers: ['Nama: nilai'], connections }
    */
   add(url, o = {}) {
     const opts = {};
@@ -133,9 +133,17 @@ class Aria2 {
     if (o.referer) opts.referer = o.referer;
     if (o.userAgent) opts['user-agent'] = o.userAgent;
     if (o.paused) opts.pause = 'true'; // "Unduh nanti": masuk antrean dalam keadaan dijeda
-    const headers = [];
+    const headers = (Array.isArray(o.headers) ? o.headers : [])
+      .map((h) => String(h).replace(/[\r\n]/g, ''))
+      .filter((h) => /^[\w-]+:\s?\S/.test(h))
+      .filter((h) => !(o.cookie && /^cookie:/i.test(h))); // cookie eksplisit menang
     if (o.cookie) headers.push(`Cookie: ${o.cookie.replace(/[\r\n]/g, '')}`);
     if (headers.length) opts.header = headers;
+    if (o.connections) {
+      const c = String(clamp(o.connections, 1, 16));
+      opts.split = c;
+      opts['max-connection-per-server'] = c;
+    }
     return this.call('addUri', [url], opts);
   }
 

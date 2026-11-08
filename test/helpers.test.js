@@ -8,6 +8,7 @@ const { categoryOf, nameFromUrl } = require('../src/categories');
 assert.strictEqual(h.friendlyError(22, 'Response status is not successful. status=403').text, 'Link kedaluwarsa');
 assert.ok(h.friendlyError(22, 'status=403').expired);
 assert.strictEqual(h.friendlyError(24, 'Authorization failed.').text, 'Link kedaluwarsa');
+assert.strictEqual(h.friendlyError(1, 'No URI available.').text, 'Link kedaluwarsa', 'multi-koneksi: semua link ditolak');
 assert.strictEqual(h.friendlyError(3, 'Resource not found').text, 'File tidak ditemukan');
 assert.strictEqual(h.friendlyError(22, 'status=503').text, 'Server sibuk');
 assert.strictEqual(h.friendlyError(9, '').text, 'Disk penuh');

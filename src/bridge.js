@@ -9,7 +9,7 @@
 const http = require('node:http');
 
 const BRIDGE_PORT = 17345;
-const MAX_BODY = 64 * 1024;
+const MAX_BODY = 512 * 1024; // cookie situs video bisa beberapa puluh KB
 
 function originAllowed(origin) {
   if (origin === undefined) return true;
@@ -21,9 +21,10 @@ function originAllowed(origin) {
  * @param {(job: object) => Promise<string>} o.onAdd  dipanggil dengan {url, filename, referer, cookie, userAgent}
  * @param {string} o.version
  * @param {number} [o.port]
+ * @param {(job: object) => Promise<string>} [o.onVideo]  halaman video: {url, cookies: [chrome.cookies]}
  * @param {() => void} [o.onSeen]  dipanggil setiap ada kontak dari ekstensi (untuk status "ekstensi terpasang")
  */
-function startBridge({ onAdd, version, port = BRIDGE_PORT, onSeen }) {
+function startBridge({ onAdd, onVideo, version, port = BRIDGE_PORT, onSeen }) {
   const server = http.createServer(async (req, res) => {
     const origin = req.headers.origin;
     if (!originAllowed(origin)) return send(res, 403, { ok: false, error: 'origin ditolak' });
@@ -60,6 +61,26 @@ function startBridge({ onAdd, version, port = BRIDGE_PORT, onSeen }) {
           userAgent: str(body.userAgent),
         });
         return send(res, 200, { ok: true, gid });
+      } catch (e) {
+        return send(res, 500, { ok: false, error: String(e.message || e) });
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/video' && onVideo) {
+      if (!String(req.headers['content-type'] || '').startsWith('application/json')) {
+        return send(res, 415, { ok: false, error: 'harus application/json' });
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return send(res, 400, { ok: false, error: 'JSON tidak valid' });
+      }
+      const url = String(body?.url || '');
+      if (!/^https?:\/\//i.test(url)) return send(res, 400, { ok: false, error: 'URL harus http atau https' });
+      const cookies = Array.isArray(body.cookies) ? body.cookies.slice(0, 500).filter((c) => c && typeof c.name === 'string' && typeof c.domain === 'string') : [];
+      try {
+        return send(res, 200, { ok: true, id: await onVideo({ url, cookies }) });
       } catch (e) {
         return send(res, 500, { ok: false, error: String(e.message || e) });
       }

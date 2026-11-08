@@ -28,7 +28,7 @@ const ICONS = {
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ICONS.Lainnya}</svg>`;
 document.querySelectorAll('[data-ic]').forEach((el) => { el.innerHTML = icon(el.dataset.ic); });
 
-const STATUS = { active: 'Mengunduh', waiting: 'Antre', paused: 'Dijeda', complete: 'Selesai', error: 'Gagal', removed: 'Dihapus' };
+const STATUS = { active: 'Mengunduh', waiting: 'Antre', paused: 'Dijeda', complete: 'Selesai', error: 'Gagal', removed: 'Dihapus', merging: 'Menggabungkan…' };
 const $ = (id) => document.getElementById(id);
 
 let state = { items: [], stat: {}, bridge: 'off', engineError: null };
@@ -65,7 +65,7 @@ const statusText = (it) => (it.status === 'error' ? it.error || STATUS.error : S
 // ---------- Filter / sidebar ----------
 const FIXED = [
   { id: 'all', label: 'Semua', ic: 'all', test: () => true },
-  { id: 'active', label: 'Berjalan', ic: 'down', test: (i) => ['active', 'waiting', 'paused'].includes(i.status) },
+  { id: 'active', label: 'Berjalan', ic: 'down', test: (i) => ['active', 'waiting', 'paused', 'merging'].includes(i.status) },
   { id: 'complete', label: 'Selesai', ic: 'check', test: (i) => i.status === 'complete' },
   { id: 'error', label: 'Gagal', ic: 'alert', test: (i) => i.status === 'error' },
 ];
@@ -160,7 +160,7 @@ function updateRow(tr, it) {
   c[1].textContent = it.total ? (it.status === 'complete' ? fmtBytes(it.total) : `${fmtBytes(it.done)} / ${fmtBytes(it.total)}`) : (it.done ? fmtBytes(it.done) : '—');
   const pct = it.total ? Math.floor((it.done / it.total) * 100) : (it.status === 'complete' ? 100 : 0);
   const bar = c[2].firstChild;
-  bar.className = `bar${it.status === 'error' ? ' err' : it.status === 'complete' ? ' ok' : ''}`;
+  bar.className = `bar${it.status === 'error' ? ' err' : it.status === 'complete' ? ' ok' : it.status === 'merging' ? ' busy' : ''}`;
   bar.firstChild.style.width = `${pct}%`;
   const known = it.total > 0 || it.status === 'complete';
   c[2].lastChild.textContent = !known ? (it.status === 'error' ? '' : '—') : `${pct}%${it.status === 'active' && it.connections ? ` · ${it.connections} koneksi` : ''}`;
@@ -196,7 +196,11 @@ function renderStatus() {
   if (cd) $('countdownText').textContent = `Semua unduhan selesai. ${cd.label} dalam ${cd.left} detik.`;
 
   $('offer').hidden = !state.offer;
-  if (state.offer) $('offerName').textContent = state.offer.name || state.offer.url;
+  if (state.offer) {
+    $('offerLead').textContent = state.offer.video ? 'Link video disalin:' : 'Link unduhan disalin:';
+    $('offerName').textContent = state.offer.name || state.offer.url;
+    $('btnOfferYes').textContent = state.offer.video ? 'Unduh video' : 'Unduh';
+  }
 
   const banner = $('banner');
   banner.hidden = !state.engineError;
@@ -265,7 +269,7 @@ rowsEl.addEventListener('contextmenu', async (e) => {
     { sep: true },
     { id: 'resume', label: one?.status === 'error' ? 'Coba lagi' : 'Lanjutkan', accel: 'Space', enabled: canResume },
     { id: 'pause', label: 'Jeda', accel: 'Space', enabled: canPause },
-    { id: 'replace', label: 'Ganti link…', enabled: !!one && one.status !== 'complete' },
+    { id: 'replace', label: 'Ganti link…', enabled: !!one && one.status !== 'complete' && !one.isVideo },
     { sep: true },
     { id: 'copy', label: s.length > 1 ? `Salin ${s.length} link` : 'Salin link', enabled: s.some((i) => i.url) },
     { sep: true },
@@ -306,7 +310,8 @@ function renderDetailShell() {
   $('dName').textContent = it.name;
   $('dName').title = it.name;
   $('dOpen').hidden = it.status !== 'complete';
-  $('dReplace').hidden = it.status === 'complete';
+  $('dReplace').hidden = it.status === 'complete' || !!it.isVideo;
+  $('dConnTitle').textContent = it.isVideo ? 'Bagian' : 'Koneksi';
   const err = it.status === 'error';
   $('dError').hidden = !err;
   if (err) { $('dErrorText').textContent = `${it.error}.`; $('dErrorHint').textContent = it.errorHint || ''; $('dError').title = it.errorRaw || ''; }
@@ -344,8 +349,8 @@ async function refreshDetail() {
   const d = await sedot.detail(it.gid);
   if (!d || d.gid !== detailTarget()?.gid) return;
   detailData = d;
-  $('dPath').textContent = d.path || '(belum dibuat)';
-  $('dPath').title = d.path || '';
+  $('dPath').textContent = d.path || (d.isVideo ? `${d.dir} (dibuat setelah selesai digabung)` : '(belum dibuat)');
+  $('dPath').title = d.path || d.dir || '';
   $('dUrl').textContent = d.url || '—';
   $('dUrl').title = d.url || '';
   $('dCopy').disabled = !d.url;
@@ -361,8 +366,9 @@ async function refreshDetail() {
   if (!complete) {
     const conns = d.connections || [];
     $('dConns').innerHTML = conns.length
-      ? conns.map((c, i) => `<li><span>${i + 1}. ${esc(c.host)}</span><span>${fmtBytes(c.speed)}/s</span></li>`).join('')
+      ? conns.map((c, i) => `<li><span>${d.isVideo ? '' : `${i + 1}. `}${esc(c.host)}</span><span>${c.speed || !d.isVideo ? `${fmtBytes(c.speed)}/s` : ''}</span></li>`).join('')
       : `<li class="muted">${d.status === 'active' ? 'Menyambung…' : 'Tidak ada koneksi aktif'}</li>`;
+    $('dLimitWrap').hidden = d.status === 'merging';
     if (document.activeElement !== $('dLimit')) $('dLimit').value = d.limitKB || 0;
   }
   drawSegments(state.items.find((i) => i.gid === d.gid) || d);

@@ -60,6 +60,7 @@ Untuk membuat installer secara lokal tanpa menerbitkan: `npm run dist`. Hasilnya
 | Fitur | Keterangan |
 |---|---|
 | Multi-koneksi | Sampai 16 koneksi per file (bisa diatur) |
+| **Unduh video** (YouTube, TikTok, Instagram, X, Facebook, Vimeo, dll.) | Tombol **Unduh video** di pemutar YouTube, menu klik kanan *Unduh video di halaman ini*, atau salin/tempel link video. Pilih kualitas (1080p, 720p, …), **Audio MP3** atau **M4A**, dan subtitle (disimpan sebagai `.srt`). Gambar & suara diunduh multi-koneksi lalu digabung otomatis. Link kedaluwarsa? Klik **Coba lagi**: link baru diambil otomatis |
 | **Lanjutkan dengan link baru** | Link kedaluwarsa (misalnya Gofile)? Klik download lagi di browser, dan Sedot menawarkan **"Lanjutkan unduhan lama dari 40%"**. Bagian yang sudah ada tetap dipakai. Bisa juga lewat klik kanan → *Ganti link…* |
 | Integrasi browser | Unduhan di Chrome/Edge otomatis dialihkan ke Sedot, termasuk cookie login dan referer. File kecil (< 256 KB) dibiarkan diunduh browser |
 | Dialog "Info unduhan" | Nama file, ukuran (dideteksi sebelum unduh), kategori, folder (bisa diingat per kategori), dan catatan. Ada peringatan kalau file yang sama sudah pernah diunduh |
@@ -76,9 +77,18 @@ Untuk membuat installer secara lokal tanpa menerbitkan: `npm run dist`. Hasilnya
 | Urutkan | Klik judul kolom. Urutan bawaan: yang berjalan di atas, lalu yang terbaru |
 | Update otomatis | Versi baru diunduh di latar belakang dari GitHub Releases |
 | Ekstensi ikut ter-update | Ekstensi dipasang dari folder aplikasi, jadi ikut diperbarui bersama Sedot |
-| Lainnya | Tray, jalan saat Windows menyala, mode gelap, batas kecepatan total, antrean |
+| Jalan saat Windows menyala | Aktif secara bawaan, langsung ke tray, supaya ekstensi selalu tersambung |
+| Lainnya | Tray, mode gelap, batas kecepatan total, antrean |
 
 **Pintasan keyboard:** `Ctrl+N` tambah URL · `Ctrl+F` cari · `↑/↓` pindah pilihan · `Spasi` jeda/lanjut · `Enter` buka file · `Delete` hapus · `Esc` tutup detail · `Ctrl+A` pilih semua.
+
+## Tentang fitur video
+
+- Komponen **yt-dlp** dan **ffmpeg** (±115 MB) diunduh **sekali** saat fitur video pertama kali dipakai. Keduanya diambil dari rilis resmi GitHub dan diperiksa dengan checksum SHA-256. yt-dlp diperbarui sendiri paling sering tiap 3 hari, karena YouTube sering berubah.
+- YouTube butuh "JavaScript runtime" untuk membuka link videonya. Sedot memakai Node yang sudah ada di dalam aplikasinya sendiri, jadi tidak perlu memasang Deno atau Node terpisah.
+- Cookie login situs video dikirim ekstensi supaya video yang butuh login atau dibatasi umur bisa dibaca. Cookie ditulis ke file sementara di komputermu dan **langsung dihapus** setelah info video terbaca.
+- Siaran langsung (live) dan konten ber-DRM (misalnya film sewaan) **tidak** didukung.
+- **Ketentuan YouTube melarang mengunduh di luar fitur resminya**, dan hak cipta tetap milik pemiliknya. Unduh hanya konten yang memang boleh kamu simpan.
 
 ## Keamanan
 
@@ -100,6 +110,7 @@ Untuk membuat installer secara lokal tanpa menerbitkan: `npm run dist`. Hasilnya
 ```
 npm test          # uji cepat: fungsi murni + mesin (multi-koneksi, resume, keamanan bridge). Butuh aria2c di PATH
 npm run test:e2e  # uji menyeluruh: membuka aplikasi sungguhan dan mengklik seperti pengguna (Linux: xvfb-run -a …)
+npm run test:e2e:video  # uji menyeluruh fitur video (butuh yt-dlp & ffmpeg di PATH)
 npm run icons     # buat ulang ikon
 ```
 
@@ -111,6 +122,9 @@ src/aria2.js       menjalankan & mengendalikan aria2c lewat JSON-RPC
 src/bridge.js      server lokal untuk ekstensi browser
 src/helpers.js     fungsi murni yang dipakai proses utama & tampilan (pesan error, segmen, pencocokan, urutan)
 src/probe.js       mengintip nama & ukuran file sebelum unduh
+src/video.js       baca info video (yt-dlp), susun pilihan kualitas, gabung (ffmpeg)
+src/videojobs.js   unduhan video: bagian gambar + suara sebagai satu baris, lanjut dengan link baru
+src/tools.js       unduh & perbarui yt-dlp + ffmpeg (dengan checksum)
 src/renderer/      tampilan (HTML/CSS/JS biasa, tanpa framework)
 extension/         ekstensi Chrome/Edge (Manifest V3)
 scripts/           pengambil aria2 & pembuat ikon

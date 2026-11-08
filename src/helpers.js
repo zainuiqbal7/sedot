@@ -9,7 +9,8 @@ function friendlyError(code, msg = '') {
   code = String(code ?? '');
   const status = (/status=(\d{3})/.exec(msg) || /\b([45]\d\d)\b/.exec(msg) || [])[1] || '';
 
-  if (['401', '403', '410'].includes(status) || code === '24') {
+  // "No URI available": aria2 sudah mencoba semua koneksi dan servernya menolak (biasanya link kedaluwarsa)
+  if (['401', '403', '410'].includes(status) || code === '24' || /no uri available/i.test(msg)) {
     return {
       text: 'Link kedaluwarsa',
       hint: 'Link unduhan sudah tidak berlaku atau butuh login. Buka lagi halaman unduhannya di browser lalu klik download: Sedot akan menawarkan untuk melanjutkan file ini dari posisi terakhir.',
@@ -83,7 +84,7 @@ function findDuplicate(items, filename, size) {
     && (!size || !i.total || i.total === size)) || null;
 }
 
-const STATUS_RANK = { active: 0, waiting: 1, paused: 2, error: 3, complete: 4 };
+const STATUS_RANK = { active: 0, merging: 0, waiting: 1, paused: 2, error: 3, complete: 4 };
 
 /**
  * Urutan bawaan: yang sedang berjalan di atas, lalu antre, dijeda, gagal, selesai.

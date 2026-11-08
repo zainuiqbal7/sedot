@@ -38,7 +38,7 @@
       </div>
       <div id="offer" class="notice" hidden>
         <span class="ic" data-ic="clip"></span>
-        <span class="grow">Link unduhan disalin: <b id="offerName"></b></span>
+        <span class="grow"><span id="offerLead">Link unduhan disalin:</span> <b id="offerName"></b></span>
         <button id="btnOfferNo" class="small">Abaikan</button>
         <button id="btnOfferYes" class="primary small">Unduh</button>
       </div>
@@ -59,7 +59,7 @@
         </table>
         <div id="empty" class="empty" hidden>
           <p class="empty-title">Belum ada unduhan</p>
-          <p id="emptyText">Klik download di browser, salin link file, atau seret link ke jendela ini.</p>
+          <p id="emptyText">Klik download di browser, klik <b>Unduh video</b> di YouTube, salin link, atau seret link ke jendela ini.</p>
           <button id="btnAddEmpty" class="primary"><span class="ic" data-ic="plus"></span>Tambah URL</button>
         </div>
         <div id="dropHint" class="drop-hint" hidden>Lepaskan untuk mengunduh</div>
@@ -89,9 +89,9 @@
             <dt id="dNoteLbl">Catatan</dt><dd id="dNote"></dd>
           </dl>
           <div class="side" id="dSide">
-            <div class="side-title">Koneksi</div>
+            <div class="side-title" id="dConnTitle">Koneksi</div>
             <ol id="dConns" class="conns"></ol>
-            <div class="limit">
+            <div class="limit" id="dLimitWrap">
               <label for="dLimit">Batas kecepatan file ini</label>
               <div class="row-inline"><input id="dLimit" type="number" min="0" step="100"> <span class="muted">KB/s</span><button id="dLimitApply" class="small">Terapkan</button></div>
               <div class="muted small-text">0 = tanpa batas</div>

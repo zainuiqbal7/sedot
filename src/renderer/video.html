@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <!-- img https: untuk thumbnail video dari situs asalnya -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:">
+  <title>Unduh video</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="job.css">
+  <link rel="stylesheet" href="video.css">
+</head>
+<body>
+  <!-- Menyiapkan / membaca / error -->
+  <section id="busy" class="busy">
+    <div class="spinner" id="spinner" aria-hidden="true"></div>
+    <p id="busyTitle" class="busy-title">Membaca info video…</p>
+    <p id="busyText" class="muted"></p>
+    <div id="busyBar" class="bar wide" hidden><i id="busyFill"></i></div>
+    <div id="busyActions" class="busy-actions" hidden>
+      <button type="button" id="close2">Tutup</button>
+      <button type="button" id="retry" class="primary">Coba lagi</button>
+    </div>
+  </section>
+
+  <!-- Siap dipilih -->
+  <form id="form" class="job" autocomplete="off" hidden>
+    <header class="vhead">
+      <img id="thumb" class="thumb" alt="" hidden>
+      <div class="vhead-text">
+        <div id="title" class="vtitle"></div>
+        <div id="meta" class="sub"></div>
+      </div>
+    </header>
+
+    <div id="resumeBox" class="resume" hidden>
+      <label class="check top"><input type="checkbox" id="resumeChk" checked>
+        <span><b id="resumeTitle"></b><br><span class="muted">Bagian yang sudah terunduh dipakai, sisanya diambil lewat link baru.</span></span>
+      </label>
+    </div>
+
+    <div id="choiceBox">
+      <div class="group-title">Kualitas</div>
+      <div id="choices" class="choices" role="radiogroup" aria-label="Pilih kualitas"></div>
+    </div>
+
+    <div id="subsBox" hidden>
+      <div class="group-title">Subtitle</div>
+      <div id="subs" class="subs"></div>
+    </div>
+
+    <div class="fields" id="fields">
+      <label for="filename">Nama file</label>
+      <div class="row"><input id="filename" type="text" spellcheck="false"><span id="ext" class="ext">.mp4</span></div>
+      <label for="dir">Simpan di</label>
+      <div class="row">
+        <input id="dir" type="text" spellcheck="false">
+        <button type="button" id="pick">Pilih…</button>
+      </div>
+    </div>
+
+    <p id="error" class="error" hidden></p>
+
+    <footer class="foot">
+      <span class="muted small-text">Unduh hanya konten yang boleh kamu simpan.</span>
+      <span class="grow"></span>
+      <button type="button" id="cancel">Batal</button>
+      <button type="button" id="later" title="Masuk daftar dalam keadaan dijeda">Unduh nanti</button>
+      <button type="submit" id="start" class="primary">Mulai unduh</button>
+    </footer>
+  </form>
+  <script src="video.js"></script>
+</body>
+</html>

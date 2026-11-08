@@ -12,6 +12,9 @@
     label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
     p { color: #69717d; font-size: 12px; margin: 10px 0 0; }
     label.gap { margin-top: 6px; }
+    .video-btn { margin-top: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px; background: #0f766e; color: #fff; font: inherit; cursor: pointer; }
+    .video-btn:hover { background: #0b5f58; }
+    .hint { color: #8a4b00; }
   </style>
 </head>
 <body>
@@ -19,6 +22,7 @@
   <div id="status" class="status">Memeriksa aplikasi…</div>
   <label><input type="checkbox" id="capture"> Tangkap unduhan otomatis</label>
   <label class="gap"><input type="checkbox" id="skipSmall"> Biarkan file kecil (&lt; 256 KB) diunduh browser</label>
+  <button id="videoBtn" class="video-btn" hidden>Unduh video di tab ini</button>
   <p>Klik kanan link → <b>Unduh dengan Sedot</b> untuk mengirim satu link secara manual.</p>
   <script src="popup.js"></script>
 </body>

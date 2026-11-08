@@ -1,0 +1,18 @@
+/* Tombol "Unduh video" Sedot di pemutar YouTube: muncul saat kursor di atas video atau saat dijeda */
+.sedot-btn {
+  position: absolute; top: 12px; right: 60px; z-index: 70;
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border: 0; border-radius: 8px;
+  background: rgba(15, 118, 110, .94); color: #fff;
+  font: 500 13px/1 Roboto, Arial, sans-serif; cursor: pointer;
+  opacity: 0; transition: opacity .2s; box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+.sedot-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.html5-video-player:hover .sedot-btn,
+.html5-video-player.paused-mode .sedot-btn,
+.sedot-btn:focus-visible,
+.sedot-btn[data-state="sending"], .sedot-btn[data-state="ok"], .sedot-btn[data-state="fail"] { opacity: 1; }
+.html5-video-player.ytp-autohide:not(.paused-mode) .sedot-btn[data-state="idle"] { opacity: 0; }
+.sedot-btn:hover { background: rgb(11, 95, 88); }
+.sedot-btn[data-state="fail"] { background: rgba(194, 65, 12, .95); }
+.sedot-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }

@@ -15,7 +15,8 @@ chrome.runtime.onInstalled.addListener(async () => {
   await chrome.storage.local.set(cur);
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'sedot-link', title: 'Unduh dengan Sedot', contexts: ['link'] });
-    chrome.contextMenus.create({ id: 'sedot-media', title: 'Unduh media ini dengan Sedot', contexts: ['image', 'video', 'audio'] });
+    chrome.contextMenus.create({ id: 'sedot-media', title: 'Unduh media ini dengan Sedot', contexts: ['image', 'audio'] });
+    chrome.contextMenus.create({ id: 'sedot-page-video', title: 'Unduh video di halaman ini (Sedot)', contexts: ['page', 'video'] });
   });
   ping(); // supaya aplikasi langsung tahu ekstensi sudah terpasang
 });
@@ -29,6 +30,48 @@ async function cookieHeader(url) {
     return '';
   }
 }
+
+/** Halaman video yang ditangani yt-dlp (sama dengan isVideoPageUrl di aplikasi). */
+function isVideoPage(url) {
+  try {
+    const u = new URL(url);
+    const h = u.hostname.replace(/^(www|m|music)\./, '');
+    const p = u.pathname;
+    return (h === 'youtube.com' && (p === '/watch' || /^\/(shorts|live)\//.test(p))) || h === 'youtu.be'
+      || (h === 'tiktok.com' && /\/video\/\d+/.test(p)) || (h === 'instagram.com' && /^\/(reel|reels|p|tv)\//.test(p))
+      || ((h === 'x.com' || h === 'twitter.com') && /\/status\/\d+/.test(p)) || (h === 'facebook.com' && /^\/(watch|reel)|\/videos\//.test(p))
+      || (h === 'vimeo.com' && /^\/\d+/.test(p));
+  } catch {
+    return false;
+  }
+}
+
+/** Kirim halaman video ke aplikasi; cookie situs ikut supaya video yang butuh login/umur bisa dibaca. */
+async function sendVideoToApp(url) {
+  let cookies = [];
+  try {
+    cookies = (await chrome.cookies.getAll({ url })).map(({ name, value, domain, path, secure, hostOnly, expirationDate }) => ({ name, value, domain, path, secure, hostOnly, expirationDate }));
+  } catch { /* tanpa cookie */ }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const res = await fetch(`${APP}/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, cookies }), signal: ctrl.signal });
+    return (await res.json()).ok === true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (msg?.type !== 'sedot-video' || typeof msg.url !== 'string') return false;
+  sendVideoToApp(msg.url).then((ok) => {
+    flashBadge(ok ? '✓' : '!', ok ? '#0f766e' : '#c2410c');
+    reply({ ok });
+  });
+  return true; // jawab secara async
+});
 
 async function sendToApp({ url, referer, filename }) {
   const ctrl = new AbortController();
@@ -90,8 +133,15 @@ chrome.downloads.onCreated.addListener(async (item) => {
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === 'sedot-page-video') {
+    const page = info.pageUrl || tab?.url;
+    const ok = page && /^https?:\/\//i.test(page) ? await sendVideoToApp(page) : false;
+    flashBadge(ok ? '✓' : '!', ok ? '#0f766e' : '#c2410c');
+    return;
+  }
   const url = info.menuItemId === 'sedot-media' ? info.srcUrl : info.linkUrl;
   if (!url || !/^(https?|ftp):\/\//i.test(url)) { flashBadge('!', '#c2410c'); return; }
-  const ok = await sendToApp({ url, referer: tab?.url });
+  // Link ke halaman video (mis. daftar video YouTube) -> dialog pilih kualitas
+  const ok = isVideoPage(url) ? await sendVideoToApp(url) : await sendToApp({ url, referer: tab?.url });
   flashBadge(ok ? '✓' : '!', ok ? '#0f766e' : '#c2410c');
 });

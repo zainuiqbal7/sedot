@@ -1,11 +1,46 @@
 {
   "manifest_version": 3,
   "name": "Sedot – tangkap unduhan",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Kirim unduhan dari browser ke aplikasi Sedot di komputer ini.",
-  "permissions": ["downloads", "contextMenus", "cookies", "storage"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "background.js" },
-  "action": { "default_popup": "popup.html", "default_icon": { "16": "icons/16.png", "32": "icons/32.png" } },
-  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+  "permissions": [
+    "contextMenus",
+    "cookies",
+    "downloads",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://music.youtube.com/*"
+      ],
+      "js": [
+        "yt.js"
+      ],
+      "css": [
+        "yt.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

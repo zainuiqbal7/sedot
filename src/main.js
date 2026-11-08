@@ -5,6 +5,7 @@ const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, Notification, na
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
+const crypto = require('node:crypto');
 const { execFileSync, execFile } = require('node:child_process');
 
 const { Aria2 } = require('./aria2');
@@ -13,6 +14,9 @@ const { JsonFile } = require('./store');
 const { categoryOf, nameFromUrl, CATEGORIES } = require('./categories');
 const { probe } = require('./probe');
 const { friendlyError, findResumable, findDuplicate, looksDownloadable } = require('./helpers');
+const { Tools } = require('./tools');
+const { VideoJobs } = require('./videojobs');
+const { isVideoPageUrl, buildChoices, probeVideo, cookiesToNetscape, safeTitle } = require('./video');
 
 const IS_WIN = process.platform === 'win32';
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png');
@@ -22,7 +26,9 @@ let tray = null;
 let aria = null;
 let settings = null;
 let history = null;
-let meta = null; // gid -> { description, keepPlace, addedAt } untuk unduhan yang belum selesai
+let meta = null; // gid -> { description, keepPlace, addedAt, group } untuk unduhan yang belum selesai
+let tools = null; // yt-dlp + ffmpeg
+let videos = null; // job unduhan video (gambar + suara digabung)
 let quitting = false;
 let pollTimer = null;
 let lastState = { items: [], stat: {}, bridge: 'off', engineError: null, afterAll: 'none', countdown: null, offer: null, extensionSeen: 0 };
@@ -52,13 +58,28 @@ async function boot() {
     notify: true,
     askBeforeDownload: true,
     categoryDirs: {},
-    openAtLogin: false,
+    openAtLogin: true,
     preventSleep: true,
     watchClipboard: true,
     onboarded: false,
   });
   history = new JsonFile(path.join(userData, 'history.json'), []);
   meta = new JsonFile(path.join(userData, 'meta.json'), {});
+  migrateSettings();
+  tools = new Tools(path.join(userData, 'tools'));
+  videos = new VideoJobs({
+    store: new JsonFile(path.join(userData, 'videos.json'), {}),
+    meta,
+    getAria: () => aria,
+    ffmpegPath: () => tools.find('ffmpeg'),
+    probe: (url, cookies) => probeWithTools(url, cookies),
+    onDone: onVideoDone,
+    changed: () => poll(),
+    uniquePath,
+  });
+  // Pastikan "jalan saat Windows menyala" benar-benar terdaftar (juga setelah update)
+  if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!settings.data.openAtLogin, args: ['--hidden'] });
+  setTimeout(() => tools.updateYtDlp().catch(() => {}), 60 * 1000);
 
   createWindow({ hidden: process.argv.includes('--hidden') });
   createTray();
@@ -80,7 +101,7 @@ async function boot() {
   }
 
   try {
-    await startBridge({ version: app.getVersion(), onAdd: onBrowserJob, onSeen: () => { lastState.extensionSeen = Date.now(); } });
+    await startBridge({ version: app.getVersion(), onAdd: onBrowserJob, onVideo: (job) => openVideoDialog(job), onSeen: () => { lastState.extensionSeen = Date.now(); } });
     lastState.bridge = 'on';
   } catch (e) {
     lastState.bridge = e.code === 'EADDRINUSE' ? 'port-in-use' : 'error';
@@ -257,13 +278,15 @@ async function poll() {
   polling = true;
   try {
     const snap = await aria.snapshot();
-    const live = snap.items.map(toItem);
+    const all = snap.items.map(toItem);
+    const live = all.filter((i) => !videos.isPart(i.gid)); // bagian video tampil lewat baris gabungannya
     for (const it of live) {
       if (it.status === 'complete' && !finalizing.has(it.gid)) finalize(it);
     }
-    const liveIds = new Set(live.map((i) => i.gid));
+    const videoItems = videos.compose(new Map(all.map((i) => [i.gid, i])));
+    const liveIds = new Set([...live, ...videoItems].map((i) => i.gid));
     const done = history.data.filter((h) => !liveIds.has(h.gid)).map((h) => ({ ...h, status: 'complete', done: h.total, speed: 0 }));
-    lastState.items = [...live.filter((i) => i.status !== 'removed'), ...done];
+    lastState.items = [...live.filter((i) => i.status !== 'removed'), ...videoItems, ...done];
     lastState.stat = { speed: Number(snap.stat.downloadSpeed) || 0, active: Number(snap.stat.numActive) || 0 };
     lastState.engineError = null;
     afterPoll();
@@ -377,8 +400,10 @@ ipcMain.handle('categories', () => CATEGORIES);
 ipcMain.handle('add', async (_e, { urls, dir }) => {
   const list = (Array.isArray(urls) ? urls : []).map((u) => String(u).trim()).filter(Boolean);
   const results = [];
+  let dialogs = 0;
   for (const url of list) {
     if (!/^(https?|ftp):\/\//i.test(url)) { results.push({ url, error: 'URL harus diawali http://, https://, atau ftp://' }); continue; }
+    if (isVideoPageUrl(url) && dialogs < 5) { dialogs++; openVideoDialog({ url }); results.push({ url, video: true }); continue; }
     try { results.push({ url, gid: await addJob({ url, dir: typeof dir === 'string' && dir ? dir : undefined }) }); }
     catch (e) { results.push({ url, error: String(e.message || e) }); }
   }
@@ -386,7 +411,10 @@ ipcMain.handle('add', async (_e, { urls, dir }) => {
 });
 
 ipcMain.handle('pause', async (_e, gids) => {
-  for (const g of ids(gids)) await aria?.call('pause', g).catch(() => {});
+  for (const g of ids(gids)) {
+    if (videos.get(g)) await videos.pause(g);
+    else await aria?.call('pause', g).catch(() => {});
+  }
   poll();
 });
 
@@ -394,6 +422,7 @@ ipcMain.handle('resume', async (_e, gids) => {
   for (const g of ids(gids)) {
     const it = findItem(g);
     if (!it) continue;
+    if (videos.get(g)) { await videos.resume(g).catch(() => {}); continue; }
     if (it.status === 'paused') await aria?.call('unpause', g).catch(() => {});
     else if (it.status === 'error' && it.url) {
       // Coba lagi: daftarkan ulang ke folder dan nama yang sama, aria2 akan melanjutkan bagian yang sudah ada.
@@ -410,6 +439,7 @@ ipcMain.handle('remove', async (_e, { gids, deleteFiles }) => {
   for (const g of ids(gids)) {
     const it = findItem(g);
     if (!it) continue;
+    if (videos.get(g)) { await videos.remove(g); continue; } // bagian sementara selalu dibersihkan
     const inHistory = history.data.some((h) => h.gid === g);
     if (inHistory) {
       history.data = history.data.filter((h) => h.gid !== g);
@@ -440,6 +470,7 @@ ipcMain.handle('reveal', (_e, gid) => {
   const it = findItem(gid);
   if (it?.path && fs.existsSync(it.path)) shell.showItemInFolder(it.path);
   else if (it?.path) shell.openPath(path.dirname(it.path));
+  else if (it?.dir) shell.openPath(it.dir);
   else shell.openPath(settings.data.downloadDir);
 });
 
@@ -724,7 +755,7 @@ let sleepBlockId = null;
 let wasBusy = false;
 
 function afterPoll() {
-  const running = lastState.items.filter((i) => i.status === 'active' || i.status === 'waiting');
+  const running = lastState.items.filter((i) => i.status === 'active' || i.status === 'waiting' || i.status === 'merging');
   const busy = running.length > 0;
 
   // Progres di ikon taskbar Windows
@@ -829,10 +860,11 @@ async function startClipboardWatch() {
       const t = await readClipboard();
       if (t === null || t === lastClip) return;
       lastClip = t;
-      if (!looksDownloadable(t, categoryOf, nameFromUrl)) return;
       const url = t.trim();
+      const video = /^https?:\/\/\S+$/i.test(url) && isVideoPageUrl(url);
+      if (!video && !looksDownloadable(t, categoryOf, nameFromUrl)) return;
       if (lastState.items.some((i) => i.url === url)) return;
-      lastState.offer = { url, name: nameFromUrl(url) };
+      lastState.offer = { url, name: video ? `Video ${hostOf(url).replace(/^www\./, '')}` : nameFromUrl(url), video };
       send();
       if (settings.data.notify && Notification.isSupported()) {
         const n = new Notification({ title: 'Link unduhan disalin', body: `${lastState.offer.name}\nKlik untuk mengunduh dengan Sedot.` });
@@ -849,7 +881,8 @@ function acceptOffer() {
   const o = lastState.offer;
   lastState.offer = null;
   send();
-  if (o) openJobDialog({ url: o.url });
+  if (o?.video) openVideoDialog({ url: o.url });
+  else if (o) openJobDialog({ url: o.url });
 }
 
 ipcMain.handle('acceptOffer', () => acceptOffer());
@@ -857,7 +890,9 @@ ipcMain.handle('dismissOffer', () => { lastState.offer = null; send(); });
 
 /** Satu link dari UI (seret-lepas) lewat dialog info, supaya ukuran & nama terlihat dulu. */
 ipcMain.handle('addViaDialog', (_e, url) => {
-  if (typeof url === 'string' && /^(https?|ftp):\/\//i.test(url.trim())) openJobDialog({ url: url.trim() });
+  if (typeof url !== 'string' || !/^(https?|ftp):\/\//i.test(url.trim())) return;
+  if (isVideoPageUrl(url.trim())) openVideoDialog({ url: url.trim() });
+  else openJobDialog({ url: url.trim() });
 });
 
 // ---------- Panel detail ----------
@@ -865,6 +900,15 @@ ipcMain.handle('addViaDialog', (_e, url) => {
 ipcMain.handle('detail', async (_e, gid) => {
   const it = findItem(gid);
   if (!it) return null;
+  if (it.isVideo) {
+    return {
+      gid: it.gid, name: it.name, path: '', dir: it.dir, url: it.url, status: it.status, total: it.total, done: it.done,
+      addedAt: it.addedAt, doneAt: 0, description: it.description || '', isVideo: true,
+      error: it.error || '', errorHint: it.errorHint || '', errorRaw: it.errorRaw || '', expired: !!it.expired,
+      connections: (it.partsInfo || []).map((p) => ({ host: `${p.label} · ${p.status === 'complete' ? 'selesai' : `${p.pct}%`}`, speed: p.speed })),
+      limitKB: 0,
+    };
+  }
   const base = {
     gid: it.gid, name: it.name, path: it.path, url: it.url, status: it.status, total: it.total, done: it.done,
     addedAt: it.addedAt || 0, doneAt: it.doneAt || 0, description: it.description || '',
@@ -897,11 +941,13 @@ function parseSize(v) {
 ipcMain.handle('setLimit', async (_e, { gid, kb }) => {
   if (!ids([gid]).length || !aria) return;
   kb = Math.max(0, Math.round(Number(kb) || 0));
+  if (videos.get(gid)) return videos.setLimit(gid, kb);
   await aria.call('changeOption', gid, { 'max-download-limit': kb ? `${kb}K` : '0' }).catch(() => {});
 });
 
 ipcMain.handle('replaceUrl', async (_e, { gid, url }) => {
   if (!ids([gid]).length) return { error: 'Unduhan tidak valid.' };
+  if (videos.get(gid)) return { error: 'Untuk unduhan video, klik Coba lagi: Sedot mengambil link baru otomatis.' };
   if (typeof url !== 'string' || !/^(https?|ftp):\/\//i.test(url.trim())) return { error: 'Link harus diawali http:// atau https://' };
   try {
     await replaceDownload(gid, { url: url.trim() });
@@ -941,4 +987,183 @@ ipcMain.handle('openExtensionDir', () => shell.openPath(extensionDir()));
 ipcMain.handle('openUrl', (_e, url) => {
   // hanya link yang memang dipakai UI (halaman rilis & panduan), bukan sembarang URL
   if (typeof url === 'string' && url.startsWith('https://github.com/zainuiqbal7/sedot')) shell.openExternal(url);
+});
+
+// ---------- Pengaturan lama -> baru ----------
+
+function migrateSettings() {
+  const d = settings.data;
+  if ((d.settingsVersion || 1) < 2) {
+    // v0.5: jalan otomatis saat Windows menyala jadi bawaan. Tanpa Sedot berjalan,
+    // ekstensi tidak punya tujuan dan unduhan jatuh kembali ke browser.
+    d.openAtLogin = true;
+    d.settingsVersion = 2;
+    settings.save();
+  }
+}
+
+// ---------- Unduh video (yt-dlp + ffmpeg) ----------
+
+/** Baca info video; cookie dari browser ditulis ke file sementara lalu langsung dihapus. */
+async function probeWithTools(url, cookies) {
+  await tools.ensure();
+  let cookiesFile = null;
+  if (Array.isArray(cookies) && cookies.length) {
+    const dir = path.join(app.getPath('userData'), 'tmp');
+    fs.mkdirSync(dir, { recursive: true });
+    cookiesFile = path.join(dir, `cookies-${crypto.randomBytes(6).toString('hex')}.txt`);
+    fs.writeFileSync(cookiesFile, cookiesToNetscape(cookies), { mode: 0o600 });
+  }
+  const once = () => probeVideo({ ytdlp: tools.find('yt-dlp'), url, cookiesFile, jsRuntime: process.execPath });
+  try {
+    try {
+      return await once();
+    } catch (e) {
+      // YouTube sering berubah: perbarui yt-dlp lalu coba sekali lagi
+      if (/^Gagal membaca info video|tidak ada format/i.test(e.message) && await tools.updateYtDlp({ force: true })) return await once();
+      throw e;
+    }
+  } finally {
+    if (cookiesFile) fs.rmSync(cookiesFile, { force: true });
+  }
+}
+
+function onVideoDone(job, finalPath, size) {
+  if (IS_WIN) markFromInternet(finalPath, job.pageUrl);
+  history.data.unshift({
+    gid: job.id,
+    name: path.basename(finalPath),
+    path: finalPath,
+    url: job.pageUrl,
+    total: size,
+    category: job.mode === 'video' ? 'Video' : 'Musik',
+    description: job.description || undefined,
+    addedAt: job.addedAt,
+    doneAt: Date.now(),
+  });
+  history.data = history.data.slice(0, 2000);
+  history.save();
+  if (settings.data.notify && Notification.isSupported()) {
+    const n = new Notification({ title: job.mode === 'video' ? 'Video selesai' : 'Audio selesai', body: path.basename(finalPath) });
+    n.on('click', () => shell.showItemInFolder(finalPath));
+    n.show();
+  }
+}
+
+const vdialogs = new Map();
+let vSeq = 0;
+
+function openVideoDialog({ url, cookies = [] }) {
+  for (const e of vdialogs.values()) {
+    if (e.url === url && e.win && !e.win.isDestroyed()) { e.win.show(); e.win.focus(); return Promise.resolve(`video-${e.id}`); }
+  }
+  const id = String(++vSeq);
+  const entry = { id, url, cookies, raw: null, info: { state: 'loading', url }, win: null };
+  vdialogs.set(id, entry);
+  const w = new BrowserWindow({
+    width: 680,
+    height: 300,
+    useContentSize: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    title: 'Unduh video',
+    icon: ICON,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#f6f7f9',
+    webPreferences: { preload: path.join(__dirname, 'video-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  entry.win = w;
+  w.loadFile(path.join(__dirname, 'renderer', 'video.html'), { query: { id } });
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.once('ready-to-show', () => { w.show(); w.focus(); });
+  w.on('closed', () => { entry.cookies = null; vdialogs.delete(id); });
+  loadVideoInfo(entry);
+  return Promise.resolve(`video-${id}`);
+}
+
+async function loadVideoInfo(entry) {
+  const push = () => { if (entry.win && !entry.win.isDestroyed()) entry.win.webContents.send('video:update', entry.info); };
+  try {
+    if (!tools.ready()) {
+      entry.info = { state: 'tools', url: entry.url, done: 0, total: 0 };
+      push();
+      await tools.ensure((p) => { entry.info = { state: 'tools', url: entry.url, done: p.done, total: p.total, step: p.step }; push(); });
+    }
+    entry.info = { state: 'loading', url: entry.url };
+    push();
+    const raw = await probeWithTools(entry.url, entry.cookies);
+    const data = buildChoices(raw);
+    if (data.isLive) throw new Error('Siaran langsung belum bisa diunduh. Coba lagi setelah siarannya selesai.');
+    if (!data.choices.length) throw new Error('Tidak ada format yang bisa diunduh dari halaman ini (situs ini memakai format streaming yang belum didukung Sedot).');
+    entry.raw = raw;
+    const old = videos.findUnfinished(data.key);
+    const oldItem = old ? findItem(old.id) : null;
+    entry.info = {
+      state: 'ready',
+      url: entry.url,
+      title: data.title,
+      uploader: data.uploader,
+      duration: data.duration,
+      thumbnail: /^https:\/\//.test(data.thumbnail) ? data.thumbnail : '',
+      site: data.site,
+      choices: data.choices.map(({ parts, ...c }) => c), // tampilan tidak perlu link & header
+      defaultChoice: data.defaultChoice,
+      subtitles: data.subtitles.map(({ url, ...sub }) => sub),
+      fileTitle: safeTitle(data.title),
+      dirs: { video: dirFor('Video'), audio: dirFor('Musik') },
+      resume: old ? { id: old.id, name: `${old.outName}.${old.ext}`, label: old.label, pct: oldItem?.total ? Math.floor((oldItem.done / oldItem.total) * 100) : 0 } : null,
+    };
+  } catch (e) {
+    entry.info = { state: 'error', url: entry.url, message: String(e.message || e) };
+  }
+  push();
+}
+
+function vdialogFor(e, id) {
+  const entry = vdialogs.get(String(id));
+  return entry && entry.win && !entry.win.isDestroyed() && e.sender === entry.win.webContents ? entry : null;
+}
+
+ipcMain.handle('video:get', (e, id) => vdialogFor(e, id)?.info || null);
+ipcMain.handle('video:retry', (e, id) => { const en = vdialogFor(e, id); if (en) loadVideoInfo(en); });
+ipcMain.handle('video:resize', (e, { id, h }) => {
+  const en = vdialogFor(e, id);
+  if (en && Number.isFinite(h)) en.win.setContentSize(680, Math.max(200, Math.min(760, Math.ceil(h))));
+});
+ipcMain.handle('video:chooseDir', async (e, { id, current }) => {
+  const en = vdialogFor(e, id);
+  if (!en) return null;
+  const r = await dialog.showOpenDialog(en.win, { properties: ['openDirectory', 'createDirectory'], defaultPath: current || settings.data.downloadDir });
+  return r.canceled ? null : r.filePaths[0];
+});
+ipcMain.handle('video:decide', async (e, d) => {
+  const en = vdialogFor(e, d?.id);
+  if (!en) return { error: 'Dialog sudah tidak berlaku.' };
+  if (d.action === 'cancel') { en.win.close(); return { ok: true }; }
+  if (!en.raw) return { error: 'Info video belum siap.' };
+  try {
+    if (d.resumeId && en.info.resume?.id === d.resumeId) {
+      await videos.resume(d.resumeId, en.cookies);
+    } else {
+      const dir = typeof d.dir === 'string' && d.dir.trim() ? path.resolve(d.dir.trim()) : en.info.dirs.video;
+      fs.mkdirSync(dir, { recursive: true });
+      await videos.create({
+        raw: en.raw,
+        choiceId: d.choiceId,
+        title: safeTitle(d.title || en.info.fileTitle),
+        dir,
+        subs: Array.isArray(d.subs) ? d.subs.filter((x) => typeof x === 'string') : [],
+        paused: d.action === 'later',
+        connections: Math.min(8, settings.data.connections), // YouTube membatasi koneksi berlebihan
+      });
+    }
+  } catch (err) {
+    return { error: String(err.message || err) };
+  }
+  en.win.close();
+  return { ok: true };
 });
