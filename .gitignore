@@ -1,3 +1,6 @@
 node_modules/
 dist/
 bin/
+target/
+src-tauri/ui-dist/
+src-tauri/gen/

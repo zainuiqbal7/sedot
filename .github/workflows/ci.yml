@@ -1,0 +1,28 @@
+# Uji otomatis setiap push ke main: mesin Rust (versi baru) + uji cepat versi Electron.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y aria2
+      - name: Uji mesin Rust (sedot-core)
+        run: cargo test -p sedot-core -- --nocapture
+
+  electron-quick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: sudo apt-get update && sudo apt-get install -y aria2 libarchive-tools
+      - run: npm ci
+      - run: npm test
