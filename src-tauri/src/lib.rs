@@ -34,8 +34,8 @@ pub fn show_main(app: &AppHandle) {
 }
 
 pub fn set_autostart(app: &AppHandle, on: bool) {
-    // Hanya untuk aplikasi terpasang (rilis): build pengembangan jangan didaftarkan ke Windows
-    if cfg!(debug_assertions) {
+    // Hanya untuk aplikasi terpasang (rilis): build pengembangan & alpha jangan didaftarkan ke Windows
+    if cfg!(debug_assertions) || cfg!(feature = "alpha") {
         return;
     }
     use tauri_plugin_autostart::ManagerExt;

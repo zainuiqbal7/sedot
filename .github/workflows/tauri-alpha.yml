@@ -18,7 +18,8 @@ jobs:
       - name: Uji unit (Windows)
         run: cargo test -p sedot-core --lib; cargo test -p sedot --lib
       - name: Bangun installer
-        run: npx tauri build --config src-tauri/tauri.conf.json
+        # Nama, folder data & id terpisah dari Sedot biasa; tanpa autostart (fitur 'alpha')
+        run: npx tauri build --features alpha --config src-tauri/tauri.alpha.conf.json
         working-directory: .
       - uses: actions/upload-artifact@v4
         with:

@@ -9,6 +9,10 @@ license.workspace = true
 name = "sedot_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Build percobaan: tidak mendaftar autostart, supaya tidak berebut dengan Sedot yang dipakai sehari-hari
+alpha = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
