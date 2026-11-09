@@ -26,3 +26,25 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y aria2 libarchive-tools
       - run: npm ci
       - run: npm test
+
+  tauri-linux:
+    # Aplikasi Tauri sungguhan dikendalikan lewat WebDriver (test/e2e-tauri.test.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Pasang pustaka Tauri, WebKitWebDriver, aria2, xclip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev webkit2gtk-driver xvfb xclip aria2
+      - run: cargo install tauri-driver --locked
+      - name: Uji unit aplikasi
+        run: cargo test -p sedot --lib
+      - name: Bangun & uji menyeluruh
+        run: |
+          node scripts/build-ui.js
+          cargo build -p sedot
+          xvfb-run -a node test/e2e-tauri.test.js

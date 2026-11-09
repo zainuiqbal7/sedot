@@ -62,3 +62,18 @@ pub fn now_ms() -> u64 {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
+
+/// Catatan tambahan per unduhan yang belum selesai (meta.json; sama dengan versi Electron).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Meta {
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub keep_place: bool,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub added_at: u64,
+    /// Bagian dari unduhan video (atau "__tools"): disembunyikan dari daftar.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub group: String,
+}

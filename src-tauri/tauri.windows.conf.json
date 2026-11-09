@@ -1,0 +1,5 @@
+{
+  "bundle": {
+    "resources": { "../extension/": "extension/", "../bin/aria2c.exe": "bin/aria2c.exe", "../bin/aria2-COPYING": "bin/aria2-COPYING" }
+  }
+}

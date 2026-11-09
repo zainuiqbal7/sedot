@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Jendela Sedot: utama, Info unduhan, Unduh video",
+  "windows": ["main", "job-*", "video-*"],
+  "permissions": ["core:default"]
+}
