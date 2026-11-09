@@ -263,8 +263,21 @@ process.on('exit', () => { try { driverProc?.kill(); } catch { /* sudah mati */ 
   driver.kill();
   try { process.kill(pid); } catch { /* sudah keluar */ }
   await waitFor(async () => !(await fetch('http://127.0.0.1:17345/ping').then(() => true, () => false)), 10000, 'aplikasi pertama keluar');
-  const hidden = spawn(BIN, ['--hidden'], { env, stdio: 'ignore' });
-  await waitFor(() => fetch('http://127.0.0.1:17345/ping').then((r) => r.ok), 20000, 'Sedot di tray (--hidden) menjawab');
+  // Pastikan tidak ada sisa proses Sedot (kunci "satu instance" & port penghubung harus sudah lepas)
+  try { execFileSync('pkill', ['-f', `^${BIN}`]); } catch { /* tidak ada */ }
+  await waitFor(async () => { try { execFileSync('pgrep', ['-f', `^${BIN}`]); return false; } catch { return true; } }, 10000, 'semua proses Sedot berhenti');
+  let hiddenErr = '';
+  const hidden = spawn(BIN, ['--hidden'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+  hidden.stderr.on('data', (d) => { hiddenErr = (hiddenErr + d).slice(-4000); });
+  let hiddenExit = null;
+  hidden.on('exit', (c, sig) => { hiddenExit = `${c ?? ''}${sig ?? ''}`; });
+  try {
+    await waitFor(() => fetch('http://127.0.0.1:17345/ping').then((r) => r.ok), 30000, 'Sedot di tray (--hidden) menjawab');
+  } catch (e) {
+    let ps = '';
+    try { ps = execFileSync('ps', ['-eo', 'pid,stat,args'], { encoding: 'utf8' }).split('\n').filter((l) => /sedot|WebKit/.test(l)).join('\n'); } catch { /* abaikan */ }
+    throw new Error(`${e.message}\n  keluar: ${hiddenExit}\n  stderr: ${hiddenErr.split('\n').filter((l) => !/dbus|libEGL|MESA|Gtk-WARNING/i.test(l)).slice(-15).join('\n  ')}\n  proses:\n${ps}`);
+  }
   await sleep(5000);
   const tray = ramMB(hidden.pid);
   assert.ok(!tray.rows.some(([n]) => /WebKitWebProces/.test(n)), 'di tray tidak ada proses tampilan');
