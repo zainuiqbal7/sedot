@@ -28,7 +28,7 @@ const ICONS = {
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[n] || ICONS.Lainnya}</svg>`;
 document.querySelectorAll('[data-ic]').forEach((el) => { el.innerHTML = icon(el.dataset.ic); });
 
-const STATUS = { active: 'Mengunduh', waiting: 'Antre', paused: 'Dijeda', complete: 'Selesai', error: 'Gagal', removed: 'Dihapus', merging: 'Menggabungkan…' };
+const STATUS = { active: 'Mengunduh', waiting: 'Antre', paused: 'Dijeda', complete: 'Selesai', error: 'Gagal', removed: 'Dihapus', merging: 'Menggabungkan…', preparing: 'Menyiapkan…' };
 const $ = (id) => document.getElementById(id);
 
 let state = { items: [], stat: {}, bridge: 'off', engineError: null };
@@ -65,7 +65,7 @@ const statusText = (it) => (it.status === 'error' ? it.error || STATUS.error : S
 // ---------- Filter / sidebar ----------
 const FIXED = [
   { id: 'all', label: 'Semua', ic: 'all', test: () => true },
-  { id: 'active', label: 'Berjalan', ic: 'down', test: (i) => ['active', 'waiting', 'paused', 'merging'].includes(i.status) },
+  { id: 'active', label: 'Berjalan', ic: 'down', test: (i) => ['active', 'waiting', 'paused', 'merging', 'preparing'].includes(i.status) },
   { id: 'complete', label: 'Selesai', ic: 'check', test: (i) => i.status === 'complete' },
   { id: 'error', label: 'Gagal', ic: 'alert', test: (i) => i.status === 'error' },
 ];
@@ -160,10 +160,12 @@ function updateRow(tr, it) {
   c[1].textContent = it.total ? (it.status === 'complete' ? fmtBytes(it.total) : `${fmtBytes(it.done)} / ${fmtBytes(it.total)}`) : (it.done ? fmtBytes(it.done) : '—');
   const pct = it.total ? Math.floor((it.done / it.total) * 100) : (it.status === 'complete' ? 100 : 0);
   const bar = c[2].firstChild;
-  bar.className = `bar${it.status === 'error' ? ' err' : it.status === 'complete' ? ' ok' : it.status === 'merging' ? ' busy' : ''}`;
-  bar.firstChild.style.width = `${pct}%`;
+  const busy = it.status === 'merging' || (it.status === 'preparing' && it.prepPct == null);
+  bar.className = `bar${it.status === 'error' ? ' err' : it.status === 'complete' ? ' ok' : busy ? ' busy' : ''}`;
+  if (it.status === 'preparing' && it.prepPct != null) bar.firstChild.style.width = `${Math.floor(it.prepPct * 100)}%`;
+  if (it.status !== 'preparing') bar.firstChild.style.width = `${pct}%`;
   const known = it.total > 0 || it.status === 'complete';
-  c[2].lastChild.textContent = !known ? (it.status === 'error' ? '' : '—') : `${pct}%${it.status === 'active' && it.connections ? ` · ${it.connections} koneksi` : ''}`;
+  c[2].lastChild.textContent = it.status === 'preparing' ? it.prepText || '' : !known ? (it.status === 'error' ? '' : '—') : `${pct}%${it.status === 'active' && it.connections ? ` · ${it.connections} koneksi` : ''}`;
   c[3].textContent = it.status === 'active' ? `${fmtBytes(it.speed)}/s` : '';
   c[4].textContent = fmtEta(it);
   c[5].textContent = statusText(it);

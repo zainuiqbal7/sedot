@@ -79,4 +79,15 @@ assert.strictEqual(v.safeTitle('Alan Walker: PLAY / K-391?'), 'Alan Walker PLAY 
 assert.strictEqual(v.safeTitle('...'), 'video');
 
 assert.deepStrictEqual(r.subtitles.map((x) => x.name), ['Indonesia', 'Inggris (otomatis)'], 'nama bahasa dalam bahasa Indonesia');
+// Pilihan dari menu tombol YouTube
+const pick = (req) => v.pickChoice(r.choices, req)?.label;
+assert.strictEqual(pick({ kind: 'video', height: 1080 }), '1080p');
+assert.strictEqual(pick({ kind: 'video', height: 900 }), '720p', 'tidak melebihi permintaan');
+assert.strictEqual(pick({ kind: 'video', height: 144 }), '360p', 'lebih rendah dari semua -> yang terendah');
+assert.strictEqual(pick({ kind: 'mp3' }), 'Audio MP3');
+assert.strictEqual(pick({ kind: 'm4a' }), 'Audio M4A');
+assert.strictEqual(v.pickChoice(tt.choices, { kind: 'm4a' }), null, 'tanpa audio terpisah -> tidak ada pilihan audio');
+assert.deepStrictEqual(v.cleanRequest({ kind: 'video', height: '720', x: 1 }), { kind: 'video', height: 720 });
+assert.deepStrictEqual(v.cleanRequest({ kind: 'mp3', height: 9 }), { kind: 'mp3' });
+for (const bad of [null, {}, { kind: 'video', height: 99999 }, { kind: 'exe' }, 'mp3']) assert.strictEqual(v.cleanRequest(bad), null, JSON.stringify(bad));
 console.log('OK video: pilihan kualitas (H.264 diutamakan), audio MP3/M4A, subtitle, situs format gabungan, URL video, error, cookie');

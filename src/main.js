@@ -16,7 +16,7 @@ const { probe } = require('./probe');
 const { friendlyError, findResumable, findDuplicate, looksDownloadable } = require('./helpers');
 const { Tools } = require('./tools');
 const { VideoJobs } = require('./videojobs');
-const { isVideoPageUrl, buildChoices, probeVideo, cookiesToNetscape, safeTitle } = require('./video');
+const { isVideoPageUrl, buildChoices, probeVideo, cookiesToNetscape, safeTitle, cleanRequest } = require('./video');
 
 const IS_WIN = process.platform === 'win32';
 const ICON = path.join(__dirname, '..', 'assets', 'icon.png');
@@ -33,6 +33,9 @@ let quitting = false;
 let pollTimer = null;
 let lastState = { items: [], stat: {}, bridge: 'off', engineError: null, afterAll: 'none', countdown: null, offer: null, extensionSeen: 0 };
 const finalizing = new Set();
+
+// Tampilan Sedot sederhana (tabel & teks): tidak perlu GPU. Menghemat satu proses (±25–30 MB RAM).
+app.disableHardwareAcceleration();
 
 // Wajib di Windows supaya notifikasi muncul atas nama "Sedot" dan bisa diklik.
 if (IS_WIN) app.setAppUserModelId('id.sedot.app');
@@ -66,7 +69,7 @@ async function boot() {
   history = new JsonFile(path.join(userData, 'history.json'), []);
   meta = new JsonFile(path.join(userData, 'meta.json'), {});
   migrateSettings();
-  tools = new Tools(path.join(userData, 'tools'));
+  tools = new Tools(path.join(userData, 'tools'), ariaDownload);
   videos = new VideoJobs({
     store: new JsonFile(path.join(userData, 'videos.json'), {}),
     meta,
@@ -76,12 +79,16 @@ async function boot() {
     onDone: onVideoDone,
     changed: () => poll(),
     uniquePath,
+    ensureTools: (cb) => tools.ensure(cb),
+    dirFor: (cat) => dirFor(cat),
+    connections: () => Math.min(8, settings.data.connections), // YouTube membatasi koneksi berlebihan
   });
   // Pastikan "jalan saat Windows menyala" benar-benar terdaftar (juga setelah update)
   if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!settings.data.openAtLogin, args: ['--hidden'] });
   setTimeout(() => tools.updateYtDlp().catch(() => {}), 60 * 1000);
 
-  createWindow({ hidden: process.argv.includes('--hidden') });
+  // Dinyalakan bersama Windows: langsung ke tray tanpa membuat jendela (hemat RAM)
+  if (!process.argv.includes('--hidden')) createWindow();
   createTray();
   setupUpdater();
 
@@ -101,7 +108,7 @@ async function boot() {
   }
 
   try {
-    await startBridge({ version: app.getVersion(), onAdd: onBrowserJob, onVideo: (job) => openVideoDialog(job), onSeen: () => { lastState.extensionSeen = Date.now(); } });
+    await startBridge({ version: app.getVersion(), onAdd: onBrowserJob, onVideo: (job) => onVideoJob(job), onSeen: () => { lastState.extensionSeen = Date.now(); } });
     lastState.bridge = 'on';
   } catch (e) {
     lastState.bridge = e.code === 'EADDRINUSE' ? 'port-in-use' : 'error';
@@ -166,11 +173,10 @@ function createWindow({ hidden = false } = {}) {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
 
-  win.on('close', (e) => {
-    if (!quitting && settings?.data.minimizeToTray && tray) {
-      e.preventDefault();
-      win.hide();
-    }
+  // Saat "ditutup ke tray", jendela benar-benar ditutup supaya proses tampilannya (±40 MB) dilepas.
+  // Sedot tetap berjalan di tray (lihat 'window-all-closed'); membuka lagi membuat jendela baru.
+  win.on('close', () => {
+    if (!quitting && !(settings?.data.minimizeToTray && tray)) { quitting = true; app.quit(); }
   });
   win.on('show', send);
   win.on('closed', () => { win = null; });
@@ -216,7 +222,8 @@ app.on('will-quit', async (e) => {
   app.quit(); // aria sudah null, jadi kali ini keluar sungguhan (dan installer update bisa berjalan)
 });
 app.on('window-all-closed', () => {
-  if (!tray) { quitting = true; app.quit(); }
+  // Tetap hidup di tray; keluar hanya kalau tray tidak ada atau pengguna memilih Keluar
+  if (!tray || quitting) { quitting = true; app.quit(); }
 });
 
 // ---------- Unduhan ----------
@@ -755,7 +762,7 @@ let sleepBlockId = null;
 let wasBusy = false;
 
 function afterPoll() {
-  const running = lastState.items.filter((i) => i.status === 'active' || i.status === 'waiting' || i.status === 'merging');
+  const running = lastState.items.filter((i) => ['active', 'waiting', 'merging', 'preparing'].includes(i.status));
   const busy = running.length > 0;
 
   // Progres di ikon taskbar Windows
@@ -1167,3 +1174,53 @@ ipcMain.handle('video:decide', async (e, d) => {
   en.win.close();
   return { ok: true };
 });
+
+// ---------- Jalur cepat video (menu kualitas di tombol YouTube) ----------
+
+function onVideoJob(job) {
+  const request = cleanRequest(job.request);
+  if (!request) return openVideoDialog(job);
+  const title = typeof job.title === 'string' ? job.title.slice(0, 300) : '';
+  const id = videos.quick({ url: job.url, request, title, cookies: job.cookies });
+  if (settings.data.notify && Notification.isSupported()) {
+    new Notification({ title: 'Sedot mengunduh video', body: `${title || job.url} (${request.kind === 'video' ? `${request.height}p` : `Audio ${request.kind.toUpperCase()}`})` }).show();
+  }
+  return Promise.resolve(id);
+}
+
+/**
+ * Unduh satu file kecil/sedang lewat aria2 (multi-koneksi), tersembunyi dari daftar.
+ * Dipakai untuk komponen video. Gagal kalau tidak ada kemajuan selama 90 detik.
+ */
+async function ariaDownload(url, dir, out, onProgress) {
+  if (!aria) throw new Error(lastState.engineError || 'Mesin unduhan belum siap.');
+  fs.mkdirSync(dir, { recursive: true });
+  const gid = await aria.add(url, { dir, out, connections: 8 });
+  meta.data[gid] = { group: '__tools' }; // bukan unduhan pengguna: tidak tampil di daftar
+  await aria.call('changePosition', gid, 0, 'POS_SET').catch(() => {}); // jangan antre di belakang unduhan lain
+  let lastDone = -1;
+  let lastMove = Date.now();
+  let ok = false;
+  try {
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 400));
+      const st = await aria.call('tellStatus', gid, ['status', 'totalLength', 'completedLength', 'errorMessage', 'errorCode', 'files']);
+      const done = Number(st.completedLength) || 0;
+      onProgress(done, Number(st.totalLength) || 0);
+      if (st.status === 'complete') { ok = true; return st.files[0].path; }
+      if (st.status === 'error' || st.status === 'removed') {
+        throw new Error(`Gagal mengunduh komponen video (${friendlyError(st.errorCode, st.errorMessage).text}). Periksa internet lalu coba lagi.`);
+      }
+      if (done !== lastDone) { lastDone = done; lastMove = Date.now(); }
+      else if (st.status === 'active' && Date.now() - lastMove > 90000) {
+        throw new Error('Unduhan komponen video macet (tidak ada kemajuan 90 detik). Periksa internet atau VPN, lalu coba lagi.');
+      }
+    }
+  } finally {
+    if (!ok) await aria.call('forceRemove', gid).catch(() => {});
+    await new Promise((r) => setTimeout(r, 200));
+    await aria.call('removeDownloadResult', gid).catch(() => {});
+    delete meta.data[gid];
+    meta.save();
+  }
+}

@@ -21,7 +21,7 @@ function originAllowed(origin) {
  * @param {(job: object) => Promise<string>} o.onAdd  dipanggil dengan {url, filename, referer, cookie, userAgent}
  * @param {string} o.version
  * @param {number} [o.port]
- * @param {(job: object) => Promise<string>} [o.onVideo]  halaman video: {url, cookies: [chrome.cookies]}
+ * @param {(job: object) => Promise<string>} [o.onVideo]  halaman video: {url, cookies: [chrome.cookies], request?, title?}
  * @param {() => void} [o.onSeen]  dipanggil setiap ada kontak dari ekstensi (untuk status "ekstensi terpasang")
  */
 function startBridge({ onAdd, onVideo, version, port = BRIDGE_PORT, onSeen }) {
@@ -80,7 +80,9 @@ function startBridge({ onAdd, onVideo, version, port = BRIDGE_PORT, onSeen }) {
       if (!/^https?:\/\//i.test(url)) return send(res, 400, { ok: false, error: 'URL harus http atau https' });
       const cookies = Array.isArray(body.cookies) ? body.cookies.slice(0, 500).filter((c) => c && typeof c.name === 'string' && typeof c.domain === 'string') : [];
       try {
-        return send(res, 200, { ok: true, id: await onVideo({ url, cookies }) });
+        const request = body.request && typeof body.request === 'object' ? body.request : null; // divalidasi ulang di aplikasi
+        const title = typeof body.title === 'string' ? body.title.slice(0, 300) : '';
+        return send(res, 200, { ok: true, id: await onVideo({ url, cookies, request, title }) });
       } catch (e) {
         return send(res, 500, { ok: false, error: String(e.message || e) });
       }

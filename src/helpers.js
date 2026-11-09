@@ -84,7 +84,7 @@ function findDuplicate(items, filename, size) {
     && (!size || !i.total || i.total === size)) || null;
 }
 
-const STATUS_RANK = { active: 0, merging: 0, waiting: 1, paused: 2, error: 3, complete: 4 };
+const STATUS_RANK = { active: 0, merging: 0, preparing: 0, waiting: 1, paused: 2, error: 3, complete: 4 };
 
 /**
  * Urutan bawaan: yang sedang berjalan di atas, lalu antre, dijeda, gagal, selesai.

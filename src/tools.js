@@ -23,10 +23,18 @@ const SOURCES = {
 };
 
 class Tools {
-  /** @param {string} dir  folder penyimpanan, mis. <userData>/tools */
-  constructor(dir) {
+  /**
+   * @param {string} dir  folder penyimpanan, mis. <userData>/tools
+   * @param {(url: string, dir: string, out: string, onProgress: Function) => Promise<string>} [downloader]
+   *        pengunduh (aria2: multi-koneksi + deteksi macet). Tanpa ini memakai fetch biasa.
+   */
+  constructor(dir, downloader = null, sources = SOURCES) {
     this.dir = dir;
+    this.sources = sources;
+    this.downloader = downloader;
     this.installing = null;
+    this.listeners = new Set();
+    this.last = null;
   }
 
   exe(name) { return path.join(this.dir, IS_WIN ? `${name}.exe` : name); }
@@ -50,9 +58,12 @@ class Tools {
    */
   ensure(onProgress = () => {}) {
     if (this.ready()) return Promise.resolve();
-    if (!IS_WIN) return Promise.reject(new Error('yt-dlp dan ffmpeg belum terpasang. Pasang lewat package manager (mis. "pip install yt-dlp" dan "sudo apt install ffmpeg").'));
+    if (!IS_WIN && !this.forceInstall) return Promise.reject(new Error('yt-dlp dan ffmpeg belum terpasang. Pasang lewat package manager (mis. "pip install yt-dlp" dan "sudo apt install ffmpeg").'));
+    this.listeners.add(onProgress);
+    if (this.last) onProgress(this.last);
     if (!this.installing) {
-      this.installing = this.install(onProgress).finally(() => { this.installing = null; });
+      const emit = (p) => { this.last = p; for (const l of this.listeners) { try { l(p); } catch { /* abaikan */ } } };
+      this.installing = this.install(emit).finally(() => { this.installing = null; this.last = null; this.listeners.clear(); });
     }
     return this.installing;
   }
@@ -61,18 +72,20 @@ class Tools {
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = fs.mkdtempSync(path.join(this.dir, 'unduh-'));
     try {
-      const totals = { ytdlp: 0, ffmpeg: 0 };
+      const totals = { ytdlp: 24e6, ffmpeg: 92e6 }; // perkiraan; diganti ukuran asli begitu diketahui
       const dones = { ytdlp: 0, ffmpeg: 0 };
-      const report = (step) => onProgress({ step, done: dones.ytdlp + dones.ffmpeg, total: totals.ytdlp + totals.ffmpeg || 115e6 });
+      const report = (step) => onProgress({ step, done: dones.ytdlp + dones.ffmpeg, total: totals.ytdlp + totals.ffmpeg });
+      report('mulai');
+      const get = (src, dest, cb) => (this.downloader ? downloadVia(this.downloader, src, dest, cb) : download(src, dest, cb));
 
       if (!fs.existsSync(this.exe('yt-dlp'))) {
         const file = path.join(tmp, 'yt-dlp.exe');
-        await download(SOURCES.ytdlp, file, (d, t) => { dones.ytdlp = d; totals.ytdlp = t; report('yt-dlp'); });
+        await get(this.sources.ytdlp, file, (d, t) => { dones.ytdlp = d; if (t) totals.ytdlp = t; report('yt-dlp'); });
         fs.renameSync(file, this.exe('yt-dlp'));
       }
       if (!fs.existsSync(this.exe('ffmpeg'))) {
         const zip = path.join(tmp, 'ffmpeg.zip');
-        await download(SOURCES.ffmpeg, zip, (d, t) => { dones.ffmpeg = d; totals.ffmpeg = t; report('ffmpeg'); });
+        await get(this.sources.ffmpeg, zip, (d, t) => { dones.ffmpeg = d; if (t) totals.ffmpeg = t; report('ffmpeg'); });
         onProgress({ step: 'ekstrak', done: 1, total: 1 });
         const out = path.join(tmp, 'ffmpeg');
         fs.mkdirSync(out);
@@ -132,6 +145,29 @@ async function download(src, dest, onProgress) {
     fs.rmSync(dest, { force: true });
     throw new Error(`File ${src.sumName} rusak atau tidak resmi (checksum tidak cocok). Coba lagi.`);
   }
+}
+
+/** Unduh lewat pengunduh luar (aria2), lalu cek SHA-256 dengan daftar checksum resmi. */
+async function downloadVia(downloader, src, dest, onProgress) {
+  const dir = path.dirname(dest);
+  const sumsFile = await downloader(src.sums, dir, `${path.basename(dest)}.sums`, () => {});
+  const expected = expectedSum(fs.readFileSync(sumsFile, 'utf8'), src.sumName);
+  fs.rmSync(sumsFile, { force: true });
+  const got = await downloader(src.url, dir, path.basename(dest), onProgress);
+  if (got !== dest) fs.renameSync(got, dest);
+  const hash = crypto.createHash('sha256');
+  await new Promise((r, j) => fs.createReadStream(dest).on('data', (c) => hash.update(c)).on('end', r).on('error', j));
+  if (hash.digest('hex') !== expected) {
+    fs.rmSync(dest, { force: true });
+    throw new Error(`File ${src.sumName} rusak atau tidak resmi (checksum tidak cocok). Coba lagi.`);
+  }
+}
+
+function expectedSum(sums, name) {
+  const line = sums.split(/\r?\n/).find((l) => l.trim().endsWith(` ${name}`) || l.trim().endsWith(`*${name}`));
+  const expected = line?.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!expected || !/^[0-9a-f]{64}$/.test(expected)) throw new Error(`Checksum ${name} tidak ditemukan.`);
+  return expected;
 }
 
 async function fetchOk(url) {

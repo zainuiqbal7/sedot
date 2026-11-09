@@ -212,6 +212,45 @@ const ffprobe = (f) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show
   await w7.evaluate(() => window.close()).catch(() => {});
   log('OK 7. Tambah URL dengan link YouTube -> dialog video');
 
+  // 7b. Jalur cepat (menu kualitas): langsung masuk daftar tanpa dialog. Minta 1080p, video hanya punya 720p.
+  let dialogs = 0;
+  const countDlg = () => dialogs++;
+  app.on('window', countDlg);
+  const quickSend = (request, title) => fetch('http://127.0.0.1:17345/video', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'chrome-extension://abc' }, body: JSON.stringify({ url: PAGE, cookies: [], request, title }) }).then((r) => r.json());
+  assert.ok((await quickSend({ kind: 'video', height: 1080 }, 'Lagu Cepat')).ok);
+  await waitFor(() => main.evaluate(async () => (await sedot.state()).items.some((i) => i.isVideo && i.status !== 'complete')), 3000, 'baris video muncul seketika');
+  const qfile = path.join(dlg.dir, `${dlg.file}.mp4`);
+  const before = fs.existsSync(qfile) ? fs.statSync(qfile).mtimeMs : 0;
+  await waitFor(async () => (await rows()).filter((r) => r.status === 'Selesai').length >= 3, 60000, 'unduhan cepat selesai');
+  const quickRow = await main.evaluate(async () => (await sedot.state()).items.find((i) => i.status === 'complete' && /\(1\)\.mp4$|watch \(1\)\.mp4$/.test(i.name)) || null);
+  assert.ok(quickRow, 'nama dari judul video asli; file sama sudah ada -> diberi (1)');
+  assert.deepStrictEqual(ffprobe(quickRow.path).streams.map((x) => x.height).filter(Boolean), [720], 'minta 1080p, dapat yang tertinggi tersedia (720p)');
+  void before;
+  assert.ok((await quickSend({ kind: 'mp3' }, 'Audio Cepat')).ok);
+  await waitFor(async () => (await rows()).filter((r) => r.status === 'Selesai').length >= 4, 60000, 'MP3 cepat selesai');
+  app.off('window', countDlg);
+  assert.strictEqual(dialogs, 0, 'jalur cepat tidak membuka dialog');
+  const wBadP = app.waitForEvent('window');
+  assert.strictEqual((await quickSend({ kind: 'exe' }, 'x')).ok, true); // permintaan tidak valid -> jatuh ke dialog lengkap
+  const wBad = await wBadP;
+  assert.match(wBad.url(), /video\.html/);
+  await wBad.evaluate(() => window.close()).catch(() => {});
+  log('OK 7b. jalur cepat: 1080p diminta -> 720p tersedia, MP3; tanpa dialog; permintaan tak valid -> dialog');
+
+  // 7c. RAM: tutup jendela ke tray -> proses tampilan dilepas; buka lagi dari tray -> data tetap ada
+  const procs = async () => (await app.evaluate(({ app: a }) => a.getAppMetrics().map((m) => m.type))).sort();
+  const withWin = await procs();
+  await main.close();
+  await sleep(1500);
+  const trayOnly = await procs();
+  assert.ok(!trayOnly.includes('Tab'), `jendela tertutup -> tidak ada proses tampilan (dapat ${trayOnly.join(',')})`);
+  assert.ok((await fetch('http://127.0.0.1:17345/ping', { headers: { Origin: 'chrome-extension://abc' } })).ok, 'Sedot tetap berjalan di tray');
+  const reopened = app.waitForEvent('window');
+  await app.evaluate(({ app: a }) => a.emit('second-instance')); // sama seperti membuka Sedot lagi dari Start Menu
+  const main2 = await reopened;
+  await waitFor(async () => (await main2.$$eval('#rows tr', (r) => r.length)) >= 4, 10000, 'daftar muncul lagi');
+  log(`OK 7c. RAM: proses ${withWin.join('+')} -> di tray ${trayOnly.join('+')}; buka lagi, daftar utuh`);
+
   const exited = new Promise((r) => app.process().once('exit', r));
   await app.evaluate(({ app: a }) => a.quit());
   await Promise.race([exited, sleep(10000)]); // tunggu port 17345 dilepas
@@ -225,7 +264,7 @@ const ffprobe = (f) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show
     const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sedot-ext-'));
     fs.cpSync(path.join(ROOT, 'extension'), extDir, { recursive: true });
     const man = JSON.parse(fs.readFileSync(path.join(extDir, 'manifest.json'), 'utf8'));
-    man.content_scripts[0].matches.push('http://127.0.0.1/*'); // halaman uji lokal ikut dicocokkan
+    for (const c of man.content_scripts) c.matches.push('http://127.0.0.1/*'); // halaman uji lokal ikut dicocokkan
     fs.writeFileSync(path.join(extDir, 'manifest.json'), JSON.stringify(man));
     const got = [];
     const stub = http.createServer((req, res) => {
@@ -239,7 +278,19 @@ const ffprobe = (f) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show
     }).listen(17345, '127.0.0.1');
     const page = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html', 'Set-Cookie': 'PREF=tema; Path=/' });
-      res.end('<style>#movie_player{position:relative;width:640px;height:360px;background:#000}</style><div id="movie_player" class="html5-video-player paused-mode"></div><script>window.playerClicks=0;document.getElementById("movie_player").addEventListener("mousedown",()=>window.playerClicks++)</script>');
+      const pr = { videoDetails: { videoId: 'YQRHrco73g4', title: 'Alan Walker - PLAY', lengthSeconds: '171' }, streamingData: { adaptiveFormats: [
+        { itag: 137, mimeType: 'video/mp4; codecs="avc1.640028"', height: 1080, fps: 25, contentLength: '45000000', bitrate: 2500000 },
+        { itag: 248, mimeType: 'video/webm; codecs="vp9"', height: 1080, fps: 25, contentLength: '40000000', bitrate: 2600000 },
+        { itag: 136, mimeType: 'video/mp4; codecs="avc1.4d401f"', height: 720, fps: 25, contentLength: '20000000', bitrate: 1200000 },
+        { itag: 134, mimeType: 'video/mp4; codecs="avc1.4d401e"', height: 360, fps: 25, contentLength: '5000000', bitrate: 300000 },
+        { itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', contentLength: '2700000', bitrate: 129000 },
+        { itag: 251, mimeType: 'audio/webm; codecs="opus"', contentLength: '2800000', bitrate: 135000 },
+      ] } };
+      res.end(`<style>#movie_player{position:relative;width:860px;height:480px;background:#000}</style><h1 class="ytd-watch-metadata">Alan Walker - PLAY</h1><div id="movie_player" class="html5-video-player paused-mode"></div><script>
+        window.playerClicks=0; window.keys=0;
+        const p=document.getElementById("movie_player"); p.addEventListener("mousedown",()=>window.playerClicks++); document.addEventListener("keydown",()=>window.keys++);
+        p.getPlayerResponse=()=>(${JSON.stringify(pr)});
+      </script>`);
     }).listen(18196, '127.0.0.1');
     const ctx = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'prof-')), {
       executablePath: exe, headless: false, args: [`--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`],
@@ -249,16 +300,35 @@ const ffprobe = (f) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show
     const btn = await tab.waitForSelector('#sedot-video-btn', { timeout: 10000 });
     assert.strictEqual(await btn.innerText(), 'Unduh video');
     await btn.click();
+    await tab.waitForSelector('#sedot-video-menu', { timeout: 5000 });
+    const menu = await tab.$$eval('#sedot-video-menu .sedot-item', (b) => b.map((x) => [...x.children].map((c) => c.textContent).filter(Boolean).join(' ')));
+    const aligned = await tab.$$eval('#sedot-video-menu .sedot-item .sz', (z) => new Set(z.filter((x) => x.textContent).map((x) => Math.round(x.getBoundingClientRect().right))).size);
+    assert.strictEqual(aligned, 1, 'semua ukuran rata kanan di garis yang sama');
+    assert.deepStrictEqual(menu, ['1080p HD MP4 45 MB', '720p HD MP4 22 MB', '360p MP4 7 MB', 'Audio MP3 192 kbps ~4 MB', 'Audio M4A kualitas asli 3 MB', 'Pilihan lain… subtitle, folder, nama file'],
+      'menu kualitas dari data pemutar: H.264 diutamakan, ukuran = gambar + suara');
+    await tab.keyboard.press('ArrowDown');
+    await tab.keyboard.press('Escape');
+    assert.strictEqual(await tab.$('#sedot-video-menu'), null, 'Esc menutup menu');
+    assert.strictEqual(await tab.evaluate(() => window.keys), 0, 'tombol keyboard di menu tidak sampai ke pemutar YouTube');
+    await btn.click();
+    await shot(tab, 'v4-menu-youtube.png');
+    await tab.click('#sedot-video-menu .sedot-item:has-text("720p")');
     await tab.waitForFunction(() => document.getElementById('sedot-video-btn').dataset.state === 'ok', null, { timeout: 10000 });
     await shot(tab, 'v4-tombol-youtube.png');
     assert.strictEqual(got.length, 1);
+    assert.deepStrictEqual(got[0].request, { kind: 'video', height: 720 });
+    assert.strictEqual(got[0].title, 'Alan Walker - PLAY');
     assert.strictEqual(got[0].url, 'https://www.youtube.com/watch?v=YQRHrco73g4', 'playlist dibuang, hanya video ini');
     assert.ok(Array.isArray(got[0].cookies), 'cookie ikut dikirim');
-    assert.strictEqual(await tab.evaluate(() => window.playerClicks), 0, 'klik tombol tidak menjeda/memutar video');
+    assert.strictEqual(await tab.evaluate(() => window.playerClicks), 0, 'klik tombol & menu tidak menjeda/memutar video');
+    await btn.click();
+    await tab.click('#sedot-video-menu .sedot-item.more');
+    await tab.waitForFunction(() => document.getElementById('sedot-video-btn').dataset.state === 'ok', null, { timeout: 10000 });
+    assert.strictEqual(got[1].request, null, 'Pilihan lain… -> dialog lengkap di aplikasi');
     await ctx.close();
     stub.close();
     page.close();
-    log('OK 8. tombol "Unduh video" di pemutar: kirim URL bersih + cookie, tidak mengganggu pemutar');
+    log('OK 8. tombol + menu kualitas di pemutar: daftar & ukuran dari pemutar, kirim pilihan + URL bersih + cookie, tidak mengganggu pemutar');
   }
 
   srv.close();

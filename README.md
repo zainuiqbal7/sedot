@@ -60,7 +60,7 @@ Untuk membuat installer secara lokal tanpa menerbitkan: `npm run dist`. Hasilnya
 | Fitur | Keterangan |
 |---|---|
 | Multi-koneksi | Sampai 16 koneksi per file (bisa diatur) |
-| **Unduh video** (YouTube, TikTok, Instagram, X, Facebook, Vimeo, dll.) | Tombol **Unduh video** di pemutar YouTube, menu klik kanan *Unduh video di halaman ini*, atau salin/tempel link video. Pilih kualitas (1080p, 720p, …), **Audio MP3** atau **M4A**, dan subtitle (disimpan sebagai `.srt`). Gambar & suara diunduh multi-koneksi lalu digabung otomatis. Link kedaluwarsa? Klik **Coba lagi**: link baru diambil otomatis |
+| **Unduh video** (YouTube, TikTok, Instagram, X, Facebook, Vimeo, dll.) | Tombol **Unduh video** di pemutar YouTube membuka **menu kualitas beserta ukurannya** (dibaca langsung dari pemutar, tanpa menunggu). Klik satu, dan unduhan langsung masuk ke Sedot tanpa dialog. *Pilihan lain…* membuka dialog lengkap. Bisa juga lewat menu klik kanan *Unduh video di halaman ini*, atau salin/tempel link video. Pilih kualitas (1080p, 720p, …), **Audio MP3** atau **M4A**, dan subtitle (disimpan sebagai `.srt`). Gambar & suara diunduh multi-koneksi lalu digabung otomatis. Link kedaluwarsa? Klik **Coba lagi**: link baru diambil otomatis |
 | **Lanjutkan dengan link baru** | Link kedaluwarsa (misalnya Gofile)? Klik download lagi di browser, dan Sedot menawarkan **"Lanjutkan unduhan lama dari 40%"**. Bagian yang sudah ada tetap dipakai. Bisa juga lewat klik kanan → *Ganti link…* |
 | Integrasi browser | Unduhan di Chrome/Edge otomatis dialihkan ke Sedot, termasuk cookie login dan referer. File kecil (< 256 KB) dibiarkan diunduh browser |
 | Dialog "Info unduhan" | Nama file, ukuran (dideteksi sebelum unduh), kategori, folder (bisa diingat per kategori), dan catatan. Ada peringatan kalau file yang sama sudah pernah diunduh |
@@ -84,11 +84,18 @@ Untuk membuat installer secara lokal tanpa menerbitkan: `npm run dist`. Hasilnya
 
 ## Tentang fitur video
 
-- Komponen **yt-dlp** dan **ffmpeg** (±115 MB) diunduh **sekali** saat fitur video pertama kali dipakai. Keduanya diambil dari rilis resmi GitHub dan diperiksa dengan checksum SHA-256. yt-dlp diperbarui sendiri paling sering tiap 3 hari, karena YouTube sering berubah.
+- Komponen **yt-dlp** dan **ffmpeg** (±115 MB) diunduh **sekali** saat fitur video pertama kali dipakai, lewat aria2 (multi-koneksi). Kalau 90 detik tidak ada kemajuan, Sedot berhenti dan memberi tahu. Keduanya diambil dari rilis resmi GitHub dan diperiksa dengan checksum SHA-256. yt-dlp diperbarui sendiri paling sering tiap 3 hari, karena YouTube sering berubah.
 - YouTube butuh "JavaScript runtime" untuk membuka link videonya. Sedot memakai Node yang sudah ada di dalam aplikasinya sendiri, jadi tidak perlu memasang Deno atau Node terpisah.
 - Cookie login situs video dikirim ekstensi supaya video yang butuh login atau dibatasi umur bisa dibaca. Cookie ditulis ke file sementara di komputermu dan **langsung dihapus** setelah info video terbaca.
 - Siaran langsung (live) dan konten ber-DRM (misalnya film sewaan) **tidak** didukung.
 - **Ketentuan YouTube melarang mengunduh di luar fitur resminya**, dan hak cipta tetap milik pemiliknya. Unduh hanya konten yang memang boleh kamu simpan.
+
+## Pemakaian memori
+
+Sedot dibangun dengan Electron. Saat jendela terbuka, Sedot memakai beberapa proses: utama, tampilan, GPU, dan utilitas. Supaya ringan saat hanya berjalan di tray:
+- Menutup jendela (✕) **benar-benar menutup proses tampilannya**, sementara Sedot tetap berjalan di tray. Membukanya lagi dari tray atau Start Menu membuat jendela baru, dengan daftar unduhan tetap utuh.
+- Saat dinyalakan bersama Windows, Sedot **tidak membuat jendela sama sekali**.
+- Akselerasi GPU dimatikan karena tampilannya tidak membutuhkannya.
 
 ## Keamanan
 

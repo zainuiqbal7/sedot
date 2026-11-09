@@ -47,7 +47,7 @@ function isVideoPage(url) {
 }
 
 /** Kirim halaman video ke aplikasi; cookie situs ikut supaya video yang butuh login/umur bisa dibaca. */
-async function sendVideoToApp(url) {
+async function sendVideoToApp(url, request = null, title = '') {
   let cookies = [];
   try {
     cookies = (await chrome.cookies.getAll({ url })).map(({ name, value, domain, path, secure, hostOnly, expirationDate }) => ({ name, value, domain, path, secure, hostOnly, expirationDate }));
@@ -55,7 +55,7 @@ async function sendVideoToApp(url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 3000);
   try {
-    const res = await fetch(`${APP}/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, cookies }), signal: ctrl.signal });
+    const res = await fetch(`${APP}/video`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, cookies, request, title }), signal: ctrl.signal });
     return (await res.json()).ok === true;
   } catch {
     return false;
@@ -66,7 +66,8 @@ async function sendVideoToApp(url) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg?.type !== 'sedot-video' || typeof msg.url !== 'string') return false;
-  sendVideoToApp(msg.url).then((ok) => {
+  const request = msg.request && typeof msg.request === 'object' ? msg.request : null;
+  sendVideoToApp(msg.url, request, typeof msg.title === 'string' ? msg.title : '').then((ok) => {
     flashBadge(ok ? '✓' : '!', ok ? '#0f766e' : '#c2410c');
     reply({ ok });
   });

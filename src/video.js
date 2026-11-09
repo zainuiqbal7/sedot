@@ -159,6 +159,30 @@ function pickSubtitles(info) {
   return out;
 }
 
+/**
+ * Pilihan dari menu tombol YouTube -> pilihan yt-dlp yang paling cocok.
+ * Video: resolusi tertinggi yang tidak melebihi permintaan (kalau tidak ada, yang terendah).
+ * @param {object[]} choices  hasil buildChoices().choices
+ * @param {{kind: 'video'|'mp3'|'m4a', height?: number}} req
+ */
+function pickChoice(choices, req) {
+  if (!req) return null;
+  if (req.kind === 'mp3') return choices.find((c) => c.id === 'mp3') || null;
+  if (req.kind === 'm4a') return choices.find((c) => c.id === 'm4a') || choices.find((c) => c.id === 'mp3') || null;
+  const vids = choices.filter((c) => c.kind === 'video').sort((a, b) => b.height - a.height);
+  if (!vids.length) return null;
+  return vids.find((c) => c.height <= (req.height || 0)) || vids[vids.length - 1];
+}
+
+/** Permintaan dari ekstensi -> bentuk aman, atau null kalau tidak valid. */
+function cleanRequest(r) {
+  if (!r || typeof r !== 'object') return null;
+  if (r.kind === 'mp3' || r.kind === 'm4a') return { kind: r.kind };
+  const h = Math.round(Number(r.height));
+  if (r.kind === 'video' && h >= 100 && h <= 4320) return { kind: 'video', height: h };
+  return null;
+}
+
 /** Pesan error yt-dlp -> bahasa yang dimengerti. */
 function ytdlpError(stderr = '') {
   const s = String(stderr);
@@ -240,4 +264,4 @@ function safeTitle(t) {
   return (s || 'video').slice(0, 150);
 }
 
-module.exports = { isVideoPageUrl, buildChoices, ytdlpError, cookiesToNetscape, cookieHeaderFrom, probeVideo, ffmpeg, mergeArgs, safeTitle, kindOf };
+module.exports = { isVideoPageUrl, buildChoices, pickChoice, cleanRequest, ytdlpError, cookiesToNetscape, cookieHeaderFrom, probeVideo, ffmpeg, mergeArgs, safeTitle, kindOf };

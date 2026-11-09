@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sedot – tangkap unduhan",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Kirim unduhan dari browser ke aplikasi Sedot di komputer ini.",
   "permissions": [
     "contextMenus",
@@ -41,6 +41,19 @@
         "yt.css"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://music.youtube.com/*"
+      ],
+      "js": [
+        "yt-main.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
     }
-  ]
+  ],
+  "minimum_chrome_version": "111"
 }

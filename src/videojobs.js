@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { buildChoices, mergeArgs, ffmpeg, cookieHeaderFrom } = require('./video');
+const { buildChoices, mergeArgs, ffmpeg, cookieHeaderFrom, pickChoice, safeTitle } = require('./video');
 
 const TEMP = '.sedot-sementara';
 
@@ -20,6 +20,9 @@ class VideoJobs {
    * @param {(job: object, finalPath: string, size: number) => void} d.onDone
    * @param {() => void} d.changed
    * @param {(p: string) => string} d.uniquePath
+   * @param {(onProgress: Function) => Promise<void>} d.ensureTools  pastikan yt-dlp + ffmpeg ada
+   * @param {(category: string) => string} d.dirFor                  folder tujuan per kategori
+   * @param {() => number} d.connections                              koneksi per bagian
    */
   constructor(d) {
     Object.assign(this, d);
@@ -37,14 +40,14 @@ class VideoJobs {
     return Object.values(this.jobs).find((j) => j.key === key) || null;
   }
 
-  async create({ raw, choiceId, title, dir, subs = [], paused = false, description = '', connections = 8 }) {
+  async create({ raw, choiceId, title, dir, subs = [], paused = false, description = '', connections = 8, id: reuseId, addedAt }) {
     const aria = this.getAria();
     if (!aria) throw new Error('Mesin unduhan belum siap.');
     const data = buildChoices(raw);
     const choice = data.choices.find((c) => c.id === choiceId);
     if (!choice) throw new Error('Pilihan kualitas tidak ditemukan. Tutup dialog lalu coba lagi.');
 
-    const id = crypto.randomBytes(8).toString('hex');
+    const id = reuseId || crypto.randomBytes(8).toString('hex');
     const job = {
       id,
       key: data.key,
@@ -57,7 +60,7 @@ class VideoJobs {
       dir,
       pageUrl: data.pageUrl,
       site: data.site,
-      addedAt: Date.now(),
+      addedAt: addedAt || Date.now(),
       description,
       status: 'downloading',
       error: null,
@@ -84,6 +87,78 @@ class VideoJobs {
   }
 
   /**
+   * Unduhan cepat dari menu tombol YouTube: baris "Menyiapkan…" langsung muncul di daftar,
+   * info video dibaca di belakang, lalu unduhan dimulai dengan kualitas yang paling cocok.
+   */
+  quick({ url, request, title, cookies }) {
+    const id = crypto.randomBytes(8).toString('hex');
+    const kind = request.kind === 'video' ? 'video' : request.kind;
+    const job = {
+      id,
+      key: null,
+      title: title || 'video',
+      outName: safeTitle(title || 'video'),
+      ext: kind === 'video' ? 'mp4' : kind,
+      mode: kind,
+      label: kind === 'video' ? `${request.height}p` : `Audio ${kind.toUpperCase()}`,
+      dir: null,
+      pageUrl: url,
+      addedAt: Date.now(),
+      status: 'preparing',
+      prep: { text: 'Membaca info video…' },
+      request,
+      error: null,
+      parts: [],
+      subs: [],
+    };
+    this.jobs[id] = job;
+    this.save();
+    this.changed();
+    this.runQuick(job, cookies);
+    return id;
+  }
+
+  async runQuick(job, cookies) {
+    const alive = () => this.jobs[job.id] === job; // dihapus pengguna selagi menyiapkan?
+    try {
+      await this.ensureTools((p) => {
+        if (!alive()) return;
+        const mb = (n) => `${Math.round(n / 1048576)}`;
+        job.prep = { text: `Komponen video ${mb(p.done)}/${mb(p.total)} MB`, pct: p.total ? p.done / p.total : 0 };
+        this.changed();
+      });
+      if (!alive()) return;
+      job.prep = { text: 'Membaca info video…' };
+      this.changed();
+      const raw = await this.probe(job.pageUrl, cookies);
+      if (!alive()) return;
+      const data = buildChoices(raw);
+      if (data.isLive) throw new Error('Siaran langsung belum bisa diunduh. Coba lagi setelah siarannya selesai.');
+      const choice = pickChoice(data.choices, job.request);
+      if (!choice) throw new Error('Kualitas yang dipilih tidak tersedia untuk video ini. Coba pilihan lain.');
+
+      // Video yang sama pernah terhenti? Lanjutkan saja, jangan mulai dari nol.
+      const old = Object.values(this.jobs).find((j) => j !== job && j.key === data.key && j.status !== 'preparing');
+      if (old) {
+        delete this.jobs[job.id];
+        this.save();
+        await this.resume(old.id, cookies);
+        this.changed();
+        return;
+      }
+      const dir = this.dirFor(choice.kind === 'audio' ? 'Musik' : 'Video');
+      fs.mkdirSync(dir, { recursive: true });
+      await this.create({ raw, choiceId: choice.id, title: safeTitle(data.title), dir, connections: this.connections(), id: job.id, addedAt: job.addedAt });
+    } catch (e) {
+      if (!alive()) return;
+      job.status = 'error';
+      job.error = { text: 'Gagal menyiapkan', hint: `${e.message || e} Klik Coba lagi.`, prepare: true };
+      this.save();
+      this.changed();
+    }
+  }
+
+  /**
    * Dipanggil tiap polling dengan peta gid -> item aria2. Mengembalikan baris-baris video untuk daftar.
    * Sekalian: mencatat bagian yang selesai, dan memulai penggabungan saat semua bagian sudah lengkap.
    */
@@ -91,6 +166,29 @@ class VideoJobs {
     const aria = this.getAria();
     const items = [];
     for (const job of Object.values(this.jobs)) {
+      if (job.status === 'preparing' || (job.status === 'error' && job.error?.prepare)) {
+        items.push({
+          gid: job.id,
+          isVideo: true,
+          name: `${job.outName}.${job.ext}`,
+          path: '',
+          dir: job.dir || '',
+          url: job.pageUrl,
+          status: job.status,
+          total: 0,
+          done: 0,
+          speed: 0,
+          connections: 0,
+          category: job.mode === 'video' ? 'Video' : 'Musik',
+          addedAt: job.addedAt,
+          description: '',
+          prepText: job.status === 'preparing' ? job.prep?.text || 'Menyiapkan…' : '',
+          prepPct: job.prep?.pct ?? null,
+          ...(job.error ? { error: job.error.text, errorHint: job.error.hint } : {}),
+          partsInfo: [],
+        });
+        continue;
+      }
       const states = job.parts.map((p) => {
         if (p.complete) return { status: 'complete', total: p.total, done: p.total, speed: 0, connections: 0 };
         const it = live.get(p.gid);
@@ -224,6 +322,15 @@ class VideoJobs {
     const aria = this.getAria();
     const job = this.get(id);
     if (!job || !aria) return;
+    if (job.status === 'error' && job.error?.prepare) {
+      job.status = 'preparing';
+      job.error = null;
+      job.prep = { text: 'Membaca info video…' };
+      this.save();
+      this.changed();
+      this.runQuick(job, cookies);
+      return;
+    }
     if (job.status === 'error' && job.error?.merge) {
       job.status = 'downloading';
       job.error = null;
@@ -293,8 +400,10 @@ class VideoJobs {
       delete this.meta.data[p.gid];
     }
     // Bagian sementara tidak berguna tanpa job-nya: selalu dibersihkan
-    fs.rmSync(this.tempDir(job), { recursive: true, force: true });
-    try { fs.rmdirSync(path.join(job.dir, TEMP)); } catch { /* masih dipakai */ }
+    if (job.dir) {
+      fs.rmSync(this.tempDir(job), { recursive: true, force: true });
+      try { fs.rmdirSync(path.join(job.dir, TEMP)); } catch { /* masih dipakai */ }
+    }
     delete this.jobs[id];
     this.save();
     this.changed();

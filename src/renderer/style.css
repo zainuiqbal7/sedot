@@ -98,7 +98,7 @@ tbody tr.sel { background: var(--accent-soft); }
 .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .3s ease-out; }
 .bar.err > i { background: var(--danger); }
 .bar.ok > i { background: var(--ok); }
-.pct { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.pct { font-size: 11px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .st-error { color: var(--danger); }
 .st-complete { color: var(--ok); }
