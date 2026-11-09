@@ -6,7 +6,13 @@ fn main() {
     // Siapkan ui-dist di sini supaya `cargo build`/`cargo test` selalu jalan dari keadaan bersih,
     // dan perubahan tampilan otomatis ikut masuk.
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    for p in ["src/renderer", "src/helpers.js", "ui-tauri/tauri-api.js", "assets/icon.png", "scripts/build-ui.js"] {
+    for p in [
+        "src/renderer",
+        "src/helpers.js",
+        "ui-tauri/tauri-api.js",
+        "assets/icon.png",
+        "scripts/build-ui.js",
+    ] {
         println!("cargo:rerun-if-changed={}", root.join(p).display());
     }
     let ok = Command::new("node")

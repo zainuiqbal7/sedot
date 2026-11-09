@@ -17,6 +17,17 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
+/// Argumen tambahan WebView2 (Windows), untuk percobaan penghematan RAM lewat env SEDOT_WV_ARGS.
+/// Bawaan wry harus tetap ikut (dokumentasi Tauri: argumen ini menggantikan bawaannya).
+pub fn webview_args() -> Option<String> {
+    let extra = std::env::var("SEDOT_WV_ARGS")
+        .ok()
+        .filter(|a| !a.trim().is_empty())?;
+    Some(format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection {extra}"
+    ))
+}
+
 /// Tampilkan jendela utama; buat baru kalau sudah ditutup (ditutup ke tray melepas prosesnya).
 pub fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -25,7 +36,11 @@ pub fn show_main(app: &AppHandle) {
         let _ = w.set_focus();
         return;
     }
-    let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+    let mut b = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()));
+    if let Some(args) = webview_args() {
+        b = b.additional_browser_args(&args);
+    }
+    let _ = b
         .title("Sedot")
         .inner_size(1100.0, 680.0)
         .min_inner_size(760.0, 420.0)

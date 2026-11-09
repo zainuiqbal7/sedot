@@ -60,19 +60,23 @@ pub fn open(engine: &Arc<Engine>, job: NewJob) -> String {
     );
 
     let lbl = label(&id);
-    let _ = WebviewWindowBuilder::new(
+    let mut b = WebviewWindowBuilder::new(
         &engine.app,
         &lbl,
         WebviewUrl::App(format!("job.html?id={id}").into()),
-    )
-    .title("Info unduhan")
-    .inner_size(640.0, 380.0)
-    .resizable(false)
-    .minimizable(false)
-    .maximizable(false)
-    .always_on_top(true)
-    .center()
-    .build();
+    );
+    if let Some(args) = crate::webview_args() {
+        b = b.additional_browser_args(&args); // harus sama dengan jendela utama (satu lingkungan WebView2)
+    }
+    let _ = b
+        .title("Info unduhan")
+        .inner_size(640.0, 380.0)
+        .resizable(false)
+        .minimizable(false)
+        .maximizable(false)
+        .always_on_top(true)
+        .center()
+        .build();
 
     let (me, id2) = (engine.clone(), id.clone());
     tauri::async_runtime::spawn(async move {

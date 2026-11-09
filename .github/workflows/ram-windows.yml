@@ -1,0 +1,25 @@
+# Ukur RAM Sedot (Tauri vs Electron) di Windows sungguhan. Hasil: ringkasan job + artifact ram-windows.md
+name: RAM Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  measure:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci # Electron + aria2c.exe
+      - name: Bangun Sedot Tauri (rilis)
+        run: cargo build -p sedot --release --features "tauri/custom-protocol alpha"
+      - name: Ukur
+        shell: pwsh
+        run: ./scripts/ram-windows.ps1 -Tauri "$PWD\target\release\sedot.exe" -Electron "$PWD\node_modules\electron\dist\electron.exe" -AppDir "$PWD"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ram-windows
+          path: ram-windows.md
