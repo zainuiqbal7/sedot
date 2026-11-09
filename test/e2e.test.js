@@ -65,7 +65,7 @@ const U = (tok, name) => `http://127.0.0.1:18190/t/${tok}/${encodeURIComponent(n
 
   // 3. Unduh dengan link lama -> kedaluwarsa di 40%
   let wp = app.waitForEvent('window'); await send(U('old', NAME)); let w = await wp; await sleep(1500);
-  await w.click('#start');
+  await w.click('#start').catch(() => {}); // dialog menutup diri
   for (let i = 0; i < 60; i++) { await sleep(500); const st = await main.$$eval('#rows tr', (rs) => rs.map((r) => r.children[5].innerText)); if (st.some((s) => /kedaluwarsa/i.test(s))) break; }
   const rowsAfterExpire = await main.$$eval('#rows tr', (rs) => rs.map((r) => [r.children[0].innerText, r.children[5].innerText, r.children[2].innerText.replace(/\n/g, ' ')]));
   assert.deepStrictEqual(rowsAfterExpire.map((r) => r[1]), ['Link kedaluwarsa']);
@@ -81,7 +81,7 @@ const U = (tok, name) => `http://127.0.0.1:18190/t/${tok}/${encodeURIComponent(n
   const offer = await w.evaluate(() => ({ shown: !document.getElementById('resumeBox').hidden, title: document.getElementById('resumeTitle').textContent, btn: document.getElementById('start').textContent, locked: document.getElementById('filename').disabled }));
   assert.ok(offer.shown && offer.locked && /dari 40%/.test(offer.title) && offer.btn === 'Lanjutkan unduh', JSON.stringify(offer));
   await shot(w, '03-dialog-lanjut.png');
-  await w.keyboard.press('Enter');
+  await w.keyboard.press('Enter').catch(() => {}); // dialog langsung tertutup setelah Enter
   for (let i = 0; i < 80; i++) { await sleep(500); const st = await main.$$eval('#rows tr', (rs) => rs.map((r) => r.children[5].innerText)); if (st.includes('Selesai')) break; }
   const rows4 = await main.$$eval('#rows tr', (rs) => rs.map((r) => [r.children[0].innerText, r.children[5].innerText]));
   const dl = (await main.evaluate(() => sedot.getSettings())).downloadDir;
@@ -98,7 +98,7 @@ const U = (tok, name) => `http://127.0.0.1:18190/t/${tok}/${encodeURIComponent(n
   log('OK 5. urut kolom');
 
   // 6. Unduhan aktif: detail koneksi + batas kecepatan per file + klik kanan
-  wp = app.waitForEvent('window'); await send(U('new', 'Episode 07.mkv') + '?slow=1'); w = await wp; await sleep(1200); await w.click('#start'); await sleep(2500);
+  wp = app.waitForEvent('window'); await send(U('new', 'Episode 07.mkv') + '?slow=1'); w = await wp; await sleep(1200); await w.click('#start').catch(() => {}); // dialog menutup diri await sleep(2500);
   await main.click('#rows tr:has-text("Episode 07")'); await sleep(1500);
   const conns = await main.$$eval('#dConns li', (l) => l.map((x) => x.innerText.replace(/\n/g, ' ')));
   assert.ok(conns.length > 1 && /KB\/s|MB\/s/.test(conns[0]), JSON.stringify(conns));

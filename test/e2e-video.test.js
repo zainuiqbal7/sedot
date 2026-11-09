@@ -138,7 +138,7 @@ const ffprobe = (f) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show
   log('OK 2. dialog video: 720p/MP3/M4A, subtitle id, cookie login terkirim lalu file cookie dihapus');
 
   // 3. Mulai -> link kedaluwarsa di tengah jalan -> Coba lagi -> lanjut -> digabung
-  await w.click('#start');
+  await w.click('#start').catch(() => {}); // dialog menutup diri
   const vname = `${dlg.file}.mp4`;
   await waitFor(async () => { const rr = await rows(); return rr.some((r) => r.name === vname && /kedaluwarsa/i.test(r.status)); }, 60000, 'link video kedaluwarsa');
   assert.strictEqual((await rows()).filter((r) => r.name === vname).length, 1, 'gambar + suara tampil sebagai satu baris');
@@ -171,7 +171,7 @@ const ffprobe = (f) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show
   assert.match(mp3dir, /Sedot[/\\]Musik$/, 'audio otomatis ke folder Musik');
   assert.strictEqual(await w.textContent('#ext'), '.mp3');
   assert.ok(await w.evaluate(() => document.getElementById('subsBox').hidden), 'subtitle disembunyikan untuk audio');
-  await w.click('#start');
+  await w.click('#start').catch(() => {}); // dialog menutup diri
   const mp3 = path.join(mp3dir, `${dlg.file}.mp3`);
   await waitFor(() => fs.existsSync(mp3) && !fs.existsSync(path.join(mp3dir, '.sedot-sementara')), 60000, 'MP3 selesai');
   const pa = ffprobe(mp3);
@@ -180,7 +180,7 @@ const ffprobe = (f) => JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show
 
   // 5. Unduh nanti -> dijeda -> hapus -> bagian sementara bersih
   w = await openDialog();
-  await w.click('#later');
+  await w.click('#later').catch(() => {});
   const v2 = `${dlg.file}.mp4`;
   await waitFor(async () => (await rows()).some((r) => r.status === 'Dijeda'), 10000, 'item dijeda');
   const pausedRow = (await rows()).find((r) => r.status === 'Dijeda');
