@@ -14,6 +14,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci # Electron + aria2c.exe
+      - name: Pastikan program Electron terunduh
+        shell: pwsh
+        run: |
+          if (-not (Test-Path node_modules/electron/dist/electron.exe)) { node node_modules/electron/install.js }
+          Get-Item node_modules/electron/dist/electron.exe
       - name: Bangun Sedot Tauri (rilis)
         run: cargo build -p sedot --release --features "tauri/custom-protocol alpha"
       - name: Ukur
